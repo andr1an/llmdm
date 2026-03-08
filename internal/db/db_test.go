@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -72,6 +73,10 @@ func TestOpenCreatesPrivateDBDirectory(t *testing.T) {
 	}
 
 	perm := dirInfo.Mode().Perm()
+	if runtime.GOOS == "windows" {
+		// Windows does not map Unix permission bits reliably.
+		return
+	}
 	if perm&0o077 != 0 {
 		t.Fatalf("db directory permissions = %03o, want no group/other permissions", perm)
 	}
