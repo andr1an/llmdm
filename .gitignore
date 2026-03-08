@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Go build artifacts
+bin/
+*.test
+*.out
+coverage.out
+
+# SQLite campaign data and runtime files
+data/campaigns/*.db
+data/campaigns/*.db-shm
+data/campaigns/*.db-wal
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Local tool/editor folders
+.claude/
+.vscode/
+.idea/
