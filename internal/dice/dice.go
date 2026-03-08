@@ -82,10 +82,14 @@ func Parse(notation string) (*ParsedRoll, error) {
 }
 
 // Execute rolls the dice and returns the result.
-func (r *ParsedRoll) Execute() types.RollResult {
+func (r *ParsedRoll) Execute() (types.RollResult, error) {
 	rolls := make([]int, r.Count)
 	for i := 0; i < r.Count; i++ {
-		rolls[i] = rollDie(r.Sides)
+		die, err := rollDie(r.Sides)
+		if err != nil {
+			return types.RollResult{}, fmt.Errorf("roll die: %w", err)
+		}
+		rolls[i] = die
 	}
 
 	kept := r.applyKeep(rolls)
@@ -99,7 +103,7 @@ func (r *ParsedRoll) Execute() types.RollResult {
 		Notation:  r.Notation,
 		RollID:    uuid.New().String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
+	}, nil
 }
 
 func (r *ParsedRoll) applyKeep(rolls []int) []int {
@@ -118,14 +122,13 @@ func (r *ParsedRoll) applyKeep(rolls []int) []int {
 }
 
 // rollDie returns a cryptographically random integer between 1 and sides.
-func rollDie(sides int) int {
+func rollDie(sides int) (int, error) {
 	max := big.NewInt(int64(sides))
 	n, err := rand.Int(rand.Reader, max)
 	if err != nil {
-		// Fallback should never happen with crypto/rand
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+		return 0, fmt.Errorf("crypto/rand failed: %w", err)
 	}
-	return int(n.Int64()) + 1
+	return int(n.Int64()) + 1, nil
 }
 
 func sum(values []int) int {
@@ -142,13 +145,19 @@ func Roll(notation string) (types.RollResult, error) {
 	if err != nil {
 		return types.RollResult{}, err
 	}
-	return parsed.Execute(), nil
+	return parsed.Execute()
 }
 
 // RollWithAdvantage rolls 2d20 and keeps the higher result.
-func RollWithAdvantage(modifier int) types.RollResult {
-	roll1 := rollDie(20)
-	roll2 := rollDie(20)
+func RollWithAdvantage(modifier int) (types.RollResult, error) {
+	roll1, err := rollDie(20)
+	if err != nil {
+		return types.RollResult{}, fmt.Errorf("roll first d20 with advantage: %w", err)
+	}
+	roll2, err := rollDie(20)
+	if err != nil {
+		return types.RollResult{}, fmt.Errorf("roll second d20 with advantage: %w", err)
+	}
 	rolls := []int{roll1, roll2}
 
 	kept := []int{max(roll1, roll2)}
@@ -169,13 +178,19 @@ func RollWithAdvantage(modifier int) types.RollResult {
 		Notation:  notation,
 		RollID:    uuid.New().String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
+	}, nil
 }
 
 // RollWithDisadvantage rolls 2d20 and keeps the lower result.
-func RollWithDisadvantage(modifier int) types.RollResult {
-	roll1 := rollDie(20)
-	roll2 := rollDie(20)
+func RollWithDisadvantage(modifier int) (types.RollResult, error) {
+	roll1, err := rollDie(20)
+	if err != nil {
+		return types.RollResult{}, fmt.Errorf("roll first d20 with disadvantage: %w", err)
+	}
+	roll2, err := rollDie(20)
+	if err != nil {
+		return types.RollResult{}, fmt.Errorf("roll second d20 with disadvantage: %w", err)
+	}
 	rolls := []int{roll1, roll2}
 
 	kept := []int{min(roll1, roll2)}
@@ -196,7 +211,7 @@ func RollWithDisadvantage(modifier int) types.RollResult {
 		Notation:  notation,
 		RollID:    uuid.New().String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
+	}, nil
 }
 
 // ModifierFromStat calculates the D&D 5e ability modifier from a stat value.

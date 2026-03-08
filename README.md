@@ -45,8 +45,11 @@ Environment variables (see `.env.example`):
 | `DB_PATH` | `./data/campaigns` | Base directory for campaign database files |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `MCP_TRANSPORT` | `stdio` | `stdio`, `http`, or `streamable-http` |
-| `HTTP_ADDR` | `:8080` | Bind address for HTTP mode |
+| `HTTP_ADDR` | `127.0.0.1:8080` | Bind address for HTTP mode (loopback by default) |
 | `MCP_HTTP_ENDPOINT` | `/mcp` | MCP endpoint path in HTTP mode |
+| `READ_TIMEOUT` | `15s` | HTTP read timeout (also used for read header timeout) |
+| `WRITE_TIMEOUT` | `60s` | HTTP write timeout |
+| `IDLE_TIMEOUT` | `60s` | HTTP idle timeout |
 
 ### Example `.env`
 
@@ -93,18 +96,20 @@ MCP_TRANSPORT=stdio ./bin/dnd-mcp serve
 ### 2) Streamable HTTP
 
 ```bash
-MCP_TRANSPORT=http HTTP_ADDR=:28080 MCP_HTTP_ENDPOINT=/mcp ./bin/dnd-mcp serve
+MCP_TRANSPORT=http HTTP_ADDR=127.0.0.1:8080 MCP_HTTP_ENDPOINT=/mcp ./bin/dnd-mcp serve
 ```
+
+Security note: HTTP transport does not provide built-in authentication. Keep `HTTP_ADDR` bound to loopback (for example, `127.0.0.1:8080`) unless you place it behind a trusted authn/authz proxy.
 
 Health endpoint:
 
 ```bash
-curl http://127.0.0.1:28080/health
+curl http://127.0.0.1:8080/health
 ```
 
 MCP endpoint:
 
-- `http://127.0.0.1:28080/mcp`
+- `http://127.0.0.1:8080/mcp`
 
 ## MCP Client Examples
 
@@ -115,7 +120,7 @@ This repo includes `.mcp.json` for a local HTTP MCP server:
   "mcpServers": {
     "dnd-campaign": {
       "type": "http",
-      "url": "http://127.0.0.1:28080/mcp"
+      "url": "http://127.0.0.1:8080/mcp"
     }
   }
 }

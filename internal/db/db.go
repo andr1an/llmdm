@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	_ "modernc.org/sqlite"
 )
 
 //go:embed schema.sql
 var schema string
+
+var campaignIDPattern = regexp.MustCompile(`^[a-z]+(?:-[a-z]+)*$`)
 
 // DB wraps the SQLite database connection.
 type DB struct {
@@ -24,7 +27,7 @@ type DB struct {
 func Open(dbPath string) (*DB, error) {
 	// Ensure parent directory exists
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
@@ -63,7 +66,15 @@ func (db *DB) Path() string {
 	return db.path
 }
 
+// IsValidCampaignID validates campaign IDs used for database filenames.
+func IsValidCampaignID(campaignID string) bool {
+	return campaignIDPattern.MatchString(campaignID)
+}
+
 // CampaignDBPath returns the path for a campaign's database file.
-func CampaignDBPath(basePath, campaignID string) string {
-	return filepath.Join(basePath, campaignID+".db")
+func CampaignDBPath(basePath, campaignID string) (string, error) {
+	if !IsValidCampaignID(campaignID) {
+		return "", fmt.Errorf("campaign_id must match regex %q", campaignIDPattern.String())
+	}
+	return filepath.Join(basePath, campaignID+".db"), nil
 }

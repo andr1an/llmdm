@@ -132,7 +132,8 @@ func TestExecute(t *testing.T) {
 		parsed, err := Parse("1d20")
 		require.NoError(t, err)
 
-		result := parsed.Execute()
+		result, err := parsed.Execute()
+		require.NoError(t, err)
 		assert.Len(t, result.Rolls, 1)
 		assert.GreaterOrEqual(t, result.Rolls[0], 1)
 		assert.LessOrEqual(t, result.Rolls[0], 20)
@@ -145,7 +146,8 @@ func TestExecute(t *testing.T) {
 		parsed, err := Parse("2d6+3")
 		require.NoError(t, err)
 
-		result := parsed.Execute()
+		result, err := parsed.Execute()
+		require.NoError(t, err)
 		assert.Len(t, result.Rolls, 2)
 		for _, roll := range result.Rolls {
 			assert.GreaterOrEqual(t, roll, 1)
@@ -159,7 +161,8 @@ func TestExecute(t *testing.T) {
 		parsed, err := Parse("4d6kh3")
 		require.NoError(t, err)
 
-		result := parsed.Execute()
+		result, err := parsed.Execute()
+		require.NoError(t, err)
 		assert.Len(t, result.Rolls, 4)
 		assert.Len(t, result.Kept, 3)
 
@@ -175,7 +178,8 @@ func TestExecute(t *testing.T) {
 		parsed, err := Parse("4d6kl3")
 		require.NoError(t, err)
 
-		result := parsed.Execute()
+		result, err := parsed.Execute()
+		require.NoError(t, err)
 		assert.Len(t, result.Rolls, 4)
 		assert.Len(t, result.Kept, 3)
 
@@ -197,7 +201,8 @@ func TestRoll(t *testing.T) {
 }
 
 func TestRollWithAdvantage(t *testing.T) {
-	result := RollWithAdvantage(5)
+	result, err := RollWithAdvantage(5)
+	require.NoError(t, err)
 	assert.Len(t, result.Rolls, 2)
 	assert.Len(t, result.Kept, 1)
 	assert.Equal(t, max(result.Rolls[0], result.Rolls[1]), result.Kept[0])
@@ -205,7 +210,8 @@ func TestRollWithAdvantage(t *testing.T) {
 }
 
 func TestRollWithDisadvantage(t *testing.T) {
-	result := RollWithDisadvantage(-2)
+	result, err := RollWithDisadvantage(-2)
+	require.NoError(t, err)
 	assert.Len(t, result.Rolls, 2)
 	assert.Len(t, result.Kept, 1)
 	assert.Equal(t, min(result.Rolls[0], result.Rolls[1]), result.Kept[0])
@@ -243,7 +249,8 @@ func TestDiceDistribution(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < iterations; i++ {
-		result := parsed.Execute()
+		result, err := parsed.Execute()
+		require.NoError(t, err)
 		counts[result.Total]++
 	}
 

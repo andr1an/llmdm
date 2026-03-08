@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -33,6 +35,16 @@ type Server struct {
 	dbPath string
 	logger *slog.Logger
 }
+
+var campaignNamePattern = regexp.MustCompile(`^[A-Za-z]`)
+
+const (
+	maxCharacterBackstoryLength = 8000
+	maxCharacterNotesLength     = 4000
+	maxSessionRawEventsLength   = 50000
+	maxSessionDMNotesLength     = 4000
+	maxCheckpointNoteLength     = 4000
+)
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
@@ -260,9 +272,9 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("int_stat", mcp.Description("Intelligence score")),
 		mcp.WithNumber("wis", mcp.Description("Wisdom score")),
 		mcp.WithNumber("cha", mcp.Description("Charisma score")),
-		mcp.WithString("backstory", mcp.Description("Character backstory")),
+		mcp.WithString("backstory", mcp.Description("Character backstory"), mcp.MaxLength(maxCharacterBackstoryLength)),
 		mcp.WithString("status", mcp.Description("Character status"), mcp.Enum("active", "dead", "missing", "retired")),
-		mcp.WithString("notes", mcp.Description("DM private notes (for NPCs)")),
+		mcp.WithString("notes", mcp.Description("DM private notes (for NPCs)"), mcp.MaxLength(maxCharacterNotesLength)),
 	)
 	s.mcp.AddTool(saveCharacterTool, s.handleSaveCharacter)
 
@@ -274,7 +286,7 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("hp_current", mcp.Description("New current hit points")),
 		mcp.WithNumber("level", mcp.Description("New level")),
 		mcp.WithString("status", mcp.Description("New status"), mcp.Enum("active", "dead", "missing", "retired")),
-		mcp.WithString("notes", mcp.Description("New DM notes")),
+		mcp.WithString("notes", mcp.Description("New DM notes"), mcp.MaxLength(maxCharacterNotesLength)),
 	)
 	s.mcp.AddTool(updateCharacterTool, s.handleUpdateCharacter)
 
@@ -353,8 +365,8 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Compress and store end-of-session narrative summary."),
 		mcp.WithString("campaign_id", mcp.Required(), mcp.Description("Campaign ID")),
 		mcp.WithNumber("session", mcp.Required(), mcp.Description("Session number to end")),
-		mcp.WithString("raw_events", mcp.Required(), mcp.Description("Full narrative event log for the session")),
-		mcp.WithString("dm_notes", mcp.Description("Optional DM notes")),
+		mcp.WithString("raw_events", mcp.Required(), mcp.Description("Full narrative event log for the session"), mcp.MaxLength(maxSessionRawEventsLength)),
+		mcp.WithString("dm_notes", mcp.Description("Optional DM notes"), mcp.MaxLength(maxSessionDMNotesLength)),
 	)
 	s.mcp.AddTool(endSessionTool, s.handleEndSession)
 
@@ -363,7 +375,7 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Save a mid-session checkpoint note."),
 		mcp.WithString("campaign_id", mcp.Required(), mcp.Description("Campaign ID")),
 		mcp.WithNumber("session", mcp.Required(), mcp.Description("Current session number")),
-		mcp.WithString("note", mcp.Required(), mcp.Description("Checkpoint note")),
+		mcp.WithString("note", mcp.Required(), mcp.Description("Checkpoint note"), mcp.MaxLength(maxCheckpointNoteLength)),
 	)
 	s.mcp.AddTool(checkpointTool, s.handleCheckpoint)
 
@@ -429,15 +441,22 @@ func (s *Server) serveHTTP() error {
 	})
 
 	httpServer := &http.Server{
-		Addr:    s.cfg.HTTPAddr,
-		Handler: mux,
+		Addr:              s.cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: s.cfg.ReadTimeout,
+		ReadTimeout:       s.cfg.ReadTimeout,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		IdleTimeout:       s.cfg.IdleTimeout,
 	}
 	s.log().Info("serving MCP over streamable HTTP", "addr", s.cfg.HTTPAddr, "endpoint", endpoint)
 	return httpServer.ListenAndServe()
 }
 
 func (s *Server) openCampaignDB(campaignID string) (*db.DB, error) {
-	dbPath := db.CampaignDBPath(s.dbPath, campaignID)
+	dbPath, err := db.CampaignDBPath(s.dbPath, campaignID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid campaign_id: %w", err)
+	}
 	s.log().Debug("opening campaign database", "campaign_id", campaignID, "db_path", dbPath)
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -566,13 +585,13 @@ func (s *Server) handleRoll(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 		if parseErr != nil {
 			return mcp.NewToolResultError(parseErr.Error()), nil
 		}
-		result = dice.RollWithAdvantage(parsed.Modifier)
+		result, err = dice.RollWithAdvantage(parsed.Modifier)
 	} else if disadvantage {
 		parsed, parseErr := dice.Parse(notation)
 		if parseErr != nil {
 			return mcp.NewToolResultError(parseErr.Error()), nil
 		}
-		result = dice.RollWithDisadvantage(parsed.Modifier)
+		result, err = dice.RollWithDisadvantage(parsed.Modifier)
 	} else {
 		result, err = dice.Roll(notation)
 	}
@@ -679,8 +698,12 @@ func (s *Server) handleRollContested(ctx context.Context, req mcp.CallToolReques
 	defer database.Close()
 
 	logger := dice.NewLogger(database.DB)
-	logger.Log(campaignID, session, attacker, contestType+" (attacker)", attackerResult, false, false)
-	logger.Log(campaignID, session, defender, contestType+" (defender)", defenderResult, false, false)
+	if err := logger.Log(campaignID, session, attacker, contestType+" (attacker)", attackerResult, false, false); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("contested roll succeeded but attacker logging failed: %v", err)), nil
+	}
+	if err := logger.Log(campaignID, session, defender, contestType+" (defender)", defenderResult, false, false); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("contested roll succeeded but defender logging failed: %v", err)), nil
+	}
 	s.log().Debug(
 		"contested roll completed",
 		"campaign_id", campaignID,
@@ -762,7 +785,9 @@ func (s *Server) handleRollSavingThrow(ctx context.Context, req mcp.CallToolRequ
 	defer database.Close()
 
 	logger := dice.NewLogger(database.DB)
-	logger.Log(campaignID, session, character, reason, rollResult, false, false)
+	if err := logger.Log(campaignID, session, character, reason, rollResult, false, false); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("saving throw succeeded but logging failed: %v", err)), nil
+	}
 	s.log().Debug(
 		"saving throw completed",
 		"campaign_id", campaignID,
@@ -818,6 +843,9 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if err := validateCampaignName(name); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	description := req.GetString("description", "")
 
 	// Create a new campaign DB
@@ -864,6 +892,14 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	backstory := req.GetString("backstory", "")
+	if err := validateMaxLength("backstory", backstory, maxCharacterBackstoryLength); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	notes := req.GetString("notes", "")
+	if err := validateMaxLength("notes", notes, maxCharacterNotesLength); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	char := &types.Character{
 		CampaignID: campaignID,
@@ -884,9 +920,9 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req mcp.CallToolReques
 			WIS: int(req.GetFloat("wis", 10)),
 			CHA: int(req.GetFloat("cha", 10)),
 		},
-		Backstory:     req.GetString("backstory", ""),
+		Backstory:     backstory,
 		Status:        req.GetString("status", "active"),
-		Notes:         req.GetString("notes", ""),
+		Notes:         notes,
 		Inventory:     []string{},
 		Conditions:    []string{},
 		PlotFlags:     []string{},
@@ -945,6 +981,9 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequ
 	}
 	if notes, ok := args["notes"]; ok {
 		if notesStr, ok := notes.(string); ok {
+			if err := validateMaxLength("notes", notesStr, maxCharacterNotesLength); err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
 			update.Notes = &notesStr
 		}
 	}
@@ -1280,7 +1319,13 @@ func (s *Server) handleEndSession(ctx context.Context, req mcp.CallToolRequest) 
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if err := validateMaxLength("raw_events", rawEvents, maxSessionRawEventsLength); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	dmNotes := req.GetString("dm_notes", "")
+	if err := validateMaxLength("dm_notes", dmNotes, maxSessionDMNotesLength); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	sessionNumber := int(sessionNumberRaw)
 
 	database, err := s.openCampaignDB(campaignID)
@@ -1342,6 +1387,9 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 	}
 	note, err := req.RequireString("note")
 	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := validateMaxLength("note", note, maxCheckpointNoteLength); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
@@ -1524,7 +1572,7 @@ func (s *Server) handleExportSessionRecap(ctx context.Context, req mcp.CallToolR
 func generateCampaignID(name string) string {
 	id := ""
 	for _, c := range name {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+		if c >= 'a' && c <= 'z' {
 			id += string(c)
 		} else if c >= 'A' && c <= 'Z' {
 			id += string(c + 32) // lowercase
@@ -1542,4 +1590,21 @@ func generateCampaignID(name string) string {
 		id = "campaign"
 	}
 	return id
+}
+
+func validateCampaignName(name string) error {
+	if utf8.RuneCountInString(name) > 64 {
+		return fmt.Errorf("campaign name must be 64 characters or fewer")
+	}
+	if !campaignNamePattern.MatchString(name) {
+		return fmt.Errorf("campaign name must start with a letter")
+	}
+	return nil
+}
+
+func validateMaxLength(fieldName, value string, maxRunes int) error {
+	if utf8.RuneCountInString(value) > maxRunes {
+		return fmt.Errorf("%s must be %d characters or fewer", fieldName, maxRunes)
+	}
+	return nil
 }

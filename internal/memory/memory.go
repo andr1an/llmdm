@@ -319,6 +319,9 @@ func (s *Store) ListCharacters(campaignID, charType, status string) ([]types.Cha
 		}
 		result = append(result, cs)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate characters: %w", err)
+	}
 
 	if result == nil {
 		result = []types.CharacterSummary{}
@@ -394,6 +397,9 @@ func (s *Store) ListOpenHooks(campaignID string) ([]types.Hook, error) {
 		}
 		hooks = append(hooks, h)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hooks: %w", err)
+	}
 
 	if hooks == nil {
 		hooks = []types.Hook{}
@@ -455,6 +461,9 @@ func (s *Store) GetWorldFlags(campaignID string) (map[string]string, error) {
 		} else {
 			flags[key] = ""
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate world flags: %w", err)
 	}
 	return flags, nil
 }

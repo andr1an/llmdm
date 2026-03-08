@@ -116,6 +116,9 @@ func (l *Logger) GetHistory(campaignID string, character string, session int, li
 
 		records = append(records, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate roll log: %w", err)
+	}
 
 	return records, nil
 }
