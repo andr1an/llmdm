@@ -40,6 +40,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 			stat_int INTEGER,
 			stat_wis INTEGER,
 			stat_cha INTEGER,
+			gold INTEGER DEFAULT 0,
 			backstory TEXT,
 			inventory TEXT,
 			conditions TEXT,

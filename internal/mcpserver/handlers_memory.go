@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/andr1an/llmdm/internal/db"
 	"github.com/andr1an/llmdm/internal/memory"
 	"github.com/andr1an/llmdm/internal/types"
 )
@@ -41,6 +45,54 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolReque
 		"campaign":    campaign,
 	}
 	jsonResult, _ := json.Marshal(result)
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Read all .db files from the database directory
+	entries, err := os.ReadDir(s.DBPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No campaigns directory yet, return empty list
+			jsonResult, _ := json.Marshal([]types.Campaign{})
+			return mcp.NewToolResultText(string(jsonResult)), nil
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read campaigns directory: %v", err)), nil
+	}
+
+	var campaigns []types.Campaign
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
+			continue
+		}
+
+		campaignID := strings.TrimSuffix(entry.Name(), ".db")
+		if !db.IsValidCampaignID(campaignID) {
+			continue
+		}
+
+		dbPath := filepath.Join(s.DBPath(), entry.Name())
+		database, err := db.Open(dbPath)
+		if err != nil {
+			continue // Skip databases that can't be opened
+		}
+
+		store := memory.NewStore(database.DB)
+		campaign, err := store.GetCampaign(campaignID)
+		database.Close()
+
+		if err != nil || campaign == nil {
+			continue
+		}
+
+		campaigns = append(campaigns, *campaign)
+	}
+
+	if campaigns == nil {
+		campaigns = []types.Campaign{}
+	}
+
+	jsonResult, _ := json.Marshal(campaigns)
 	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 
@@ -93,6 +145,7 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req mcp.CallToolReques
 			WIS: int(req.GetFloat("wis", 10)),
 			CHA: int(req.GetFloat("cha", 10)),
 		},
+		Gold:          int(req.GetFloat("gold", 0)),
 		Backstory:     backstory,
 		Status:        req.GetString("status", "active"),
 		Notes:         notes,
@@ -147,6 +200,12 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequ
 			update.Level = &levelInt
 		}
 	}
+	if gold, ok := args["gold"]; ok {
+		if goldFloat, ok := gold.(float64); ok {
+			goldInt := int(goldFloat)
+			update.Gold = &goldInt
+		}
+	}
 	if status, ok := args["status"]; ok {
 		if statusStr, ok := status.(string); ok {
 			update.Status = &statusStr
@@ -158,6 +217,54 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequ
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 			update.Notes = &notesStr
+		}
+	}
+	// Parse inventory array
+	if inv, ok := args["inventory"]; ok {
+		if invSlice, ok := inv.([]interface{}); ok {
+			inventory := make([]string, 0, len(invSlice))
+			for _, item := range invSlice {
+				if itemStr, ok := item.(string); ok {
+					inventory = append(inventory, itemStr)
+				}
+			}
+			update.Inventory = inventory
+		}
+	}
+	// Parse conditions array
+	if cond, ok := args["conditions"]; ok {
+		if condSlice, ok := cond.([]interface{}); ok {
+			conditions := make([]string, 0, len(condSlice))
+			for _, c := range condSlice {
+				if condStr, ok := c.(string); ok {
+					conditions = append(conditions, condStr)
+				}
+			}
+			update.Conditions = conditions
+		}
+	}
+	// Parse plot_flags array
+	if pf, ok := args["plot_flags"]; ok {
+		if pfSlice, ok := pf.([]interface{}); ok {
+			plotFlags := make([]string, 0, len(pfSlice))
+			for _, f := range pfSlice {
+				if flagStr, ok := f.(string); ok {
+					plotFlags = append(plotFlags, flagStr)
+				}
+			}
+			update.PlotFlags = plotFlags
+		}
+	}
+	// Parse relationships map
+	if rel, ok := args["relationships"]; ok {
+		if relMap, ok := rel.(map[string]interface{}); ok {
+			relationships := make(map[string]string, len(relMap))
+			for k, v := range relMap {
+				if vStr, ok := v.(string); ok {
+					relationships[k] = vStr
+				}
+			}
+			update.Relationships = relationships
 		}
 	}
 
@@ -248,6 +355,18 @@ func (s *Server) handleSavePlotEvent(ctx context.Context, req mcp.CallToolReques
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	// Parse optional hooks array
+	var hooks []string
+	if hooksArg, ok := req.GetArguments()["hooks"]; ok {
+		if hooksSlice, ok := hooksArg.([]interface{}); ok {
+			for _, h := range hooksSlice {
+				if hookStr, ok := h.(string); ok {
+					hooks = append(hooks, hookStr)
+				}
+			}
+		}
+	}
+
 	event := &types.PlotEvent{
 		CampaignID:   campaignID,
 		Session:      int(session),
@@ -265,13 +384,14 @@ func (s *Server) handleSavePlotEvent(ctx context.Context, req mcp.CallToolReques
 	defer database.Close()
 
 	store := memory.NewStore(database.DB)
-	if err := store.SavePlotEvent(event, nil); err != nil {
+	if err := store.SavePlotEvent(event, hooks); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	result := map[string]interface{}{
-		"success":  true,
-		"event_id": event.ID,
+		"success":      true,
+		"event_id":     event.ID,
+		"hooks_opened": len(hooks),
 	}
 	jsonResult, _ := json.Marshal(result)
 	return mcp.NewToolResultText(string(jsonResult)), nil

@@ -88,9 +88,9 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO characters (id, campaign_id, name, type, class, race, level, hp_current, hp_max,
-			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, backstory, inventory,
+			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, gold, backstory, inventory,
 			conditions, relationships, plot_flags, notes, status, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(campaign_id, name) DO UPDATE SET
 			id = excluded.id,
 			type = excluded.type,
@@ -105,6 +105,7 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 			stat_int = excluded.stat_int,
 			stat_wis = excluded.stat_wis,
 			stat_cha = excluded.stat_cha,
+			gold = excluded.gold,
 			backstory = excluded.backstory,
 			inventory = excluded.inventory,
 			conditions = excluded.conditions,
@@ -115,7 +116,7 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 			updated_at = excluded.updated_at
 	`, char.ID, char.CampaignID, char.Name, char.Type, char.Class, char.Race, char.Level,
 		char.HP.Current, char.HP.Max, char.Stats.STR, char.Stats.DEX, char.Stats.CON,
-		char.Stats.INT, char.Stats.WIS, char.Stats.CHA, char.Backstory, string(inventoryJSON),
+		char.Stats.INT, char.Stats.WIS, char.Stats.CHA, char.Gold, char.Backstory, string(inventoryJSON),
 		string(conditionsJSON), string(relationshipsJSON), string(plotFlagsJSON),
 		char.Notes, char.Status, char.UpdatedAt)
 
@@ -129,6 +130,7 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 type CharacterUpdate struct {
 	HPCurrent     *int
 	Level         *int
+	Gold          *int
 	Conditions    []string
 	Inventory     []string
 	PlotFlags     []string
@@ -155,6 +157,11 @@ func (s *Store) UpdateCharacter(campaignID, name string, update CharacterUpdate)
 		updates = append(updates, "level = ?")
 		args = append(args, *update.Level)
 		updatedFields = append(updatedFields, "level")
+	}
+	if update.Gold != nil {
+		updates = append(updates, "gold = ?")
+		args = append(args, *update.Gold)
+		updatedFields = append(updatedFields, "gold")
 	}
 	if update.Conditions != nil {
 		conditionsJSON, _ := json.Marshal(update.Conditions)
@@ -219,13 +226,13 @@ func (s *Store) GetCharacter(campaignID, name string) (*types.Character, error) 
 
 	err := s.db.QueryRow(`
 		SELECT id, campaign_id, name, type, class, race, level, hp_current, hp_max,
-			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, backstory,
+			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, gold, backstory,
 			inventory, conditions, relationships, plot_flags, notes, status, updated_at
 		FROM characters WHERE campaign_id = ? AND name = ?
 	`, campaignID, name).Scan(
 		&c.ID, &c.CampaignID, &c.Name, &c.Type, &classNull, &raceNull, &c.Level,
 		&c.HP.Current, &c.HP.Max, &c.Stats.STR, &c.Stats.DEX, &c.Stats.CON,
-		&c.Stats.INT, &c.Stats.WIS, &c.Stats.CHA, &backstoryNull,
+		&c.Stats.INT, &c.Stats.WIS, &c.Stats.CHA, &c.Gold, &backstoryNull,
 		&inventoryJSON, &conditionsJSON, &relationshipsJSON, &plotFlagsJSON,
 		&notesNull, &c.Status, &c.UpdatedAt)
 

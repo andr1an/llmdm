@@ -132,6 +132,12 @@ func (s *Server) registerTools() {
 	)
 	s.mcp.AddTool(createCampaignTool, s.handleCreateCampaign)
 
+	// list_campaigns tool
+	listCampaignsTool := mcp.NewTool("list_campaigns",
+		mcp.WithDescription("List all existing campaigns. Returns campaign metadata including ID, name, description, and current session."),
+	)
+	s.mcp.AddTool(listCampaignsTool, s.handleListCampaigns)
+
 	// save_character tool
 	saveCharacterTool := mcp.NewTool("save_character",
 		mcp.WithDescription("Create or fully replace a character (PC or NPC). Use update_character for partial updates."),
@@ -149,6 +155,7 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("int_stat", mcp.Description("Intelligence score")),
 		mcp.WithNumber("wis", mcp.Description("Wisdom score")),
 		mcp.WithNumber("cha", mcp.Description("Charisma score")),
+		mcp.WithNumber("gold", mcp.Description("Gold pieces (default: 0)")),
 		mcp.WithString("backstory", mcp.Description("Character backstory"), mcp.MaxLength(maxCharacterBackstoryLength)),
 		mcp.WithString("status", mcp.Description("Character status"), mcp.Enum("active", "dead", "missing", "retired")),
 		mcp.WithString("notes", mcp.Description("DM private notes (for NPCs)"), mcp.MaxLength(maxCharacterNotesLength)),
@@ -162,8 +169,13 @@ func (s *Server) registerTools() {
 		mcp.WithString("name", mcp.Required(), mcp.Description("Character name")),
 		mcp.WithNumber("hp_current", mcp.Description("New current hit points")),
 		mcp.WithNumber("level", mcp.Description("New level")),
+		mcp.WithNumber("gold", mcp.Description("New gold amount")),
 		mcp.WithString("status", mcp.Description("New status"), mcp.Enum("active", "dead", "missing", "retired")),
 		mcp.WithString("notes", mcp.Description("New DM notes"), mcp.MaxLength(maxCharacterNotesLength)),
+		mcp.WithArray("inventory", mcp.Description("Replace inventory with array of item strings")),
+		mcp.WithArray("conditions", mcp.Description("Replace conditions with array of condition strings")),
+		mcp.WithArray("plot_flags", mcp.Description("Replace plot flags with array of flag strings")),
+		mcp.WithObject("relationships", mcp.Description("Replace relationships map (name -> relation)")),
 	)
 	s.mcp.AddTool(updateCharacterTool, s.handleUpdateCharacter)
 
@@ -191,6 +203,7 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("session", mcp.Required(), mcp.Description("Session number")),
 		mcp.WithString("summary", mcp.Required(), mcp.Description("2-4 sentence narrative description")),
 		mcp.WithString("consequences", mcp.Description("What changed in the world")),
+		mcp.WithArray("hooks", mcp.Description("Array of plot hook strings - unresolved story threads to track")),
 	)
 	s.mcp.AddTool(savePlotEventTool, s.handleSavePlotEvent)
 

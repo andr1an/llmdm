@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS characters (
   stat_int      INTEGER,
   stat_wis      INTEGER,
   stat_cha      INTEGER,
+  gold          INTEGER DEFAULT 0,
   backstory     TEXT,
   inventory     TEXT,        -- JSON array
   conditions    TEXT,        -- JSON array

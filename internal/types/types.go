@@ -12,6 +12,7 @@ type Character struct {
 	Level         int               `json:"level"`
 	HP            HP                `json:"hp"`
 	Stats         Stats             `json:"stats"`
+	Gold          int               `json:"gold"`
 	Backstory     string            `json:"backstory,omitempty"`
 	Inventory     []string          `json:"inventory"`
 	Conditions    []string          `json:"conditions"`

@@ -37,6 +37,11 @@ func New(cfg *config.Config, logger *slog.Logger) *Server {
 	return srv
 }
 
+// DBPath returns the database directory path.
+func (s *Server) DBPath() string {
+	return s.dbPath
+}
+
 // Serve starts the MCP server based on configured transport.
 func (s *Server) Serve() error {
 	s.log().Info(

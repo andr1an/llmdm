@@ -110,6 +110,7 @@ func TestToolRegistrationIntegrity(t *testing.T) {
 		"get_roll_history",
 		"get_session_brief",
 		"get_world_flags",
+		"list_campaigns",
 		"list_characters",
 		"list_open_hooks",
 		"list_sessions",

@@ -58,6 +58,10 @@ func (db *DB) Migrate() error {
 	if err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
+
+	// Add gold column to existing databases (ignore error if column exists)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN gold INTEGER DEFAULT 0`)
+
 	return nil
 }
 
