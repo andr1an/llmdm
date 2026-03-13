@@ -27,8 +27,11 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolReque
 
 	// Create a new campaign DB
 	campaignID := generateCampaignID(name)
+	s.log().Debug("creating campaign", "campaign_id", campaignID, "name", name)
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for create_campaign", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
@@ -36,8 +39,11 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolReque
 	store := memory.NewStore(database.DB)
 	campaign, err := store.CreateCampaignWithID(campaignID, name, description)
 	if err != nil {
+		s.log().Error("failed to create campaign", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("campaign created successfully", "campaign_id", campaignID, "name", name, "db_path", database.Path())
 
 	result := map[string]interface{}{
 		"campaign_id": campaignID,
@@ -49,18 +55,23 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolReque
 }
 
 func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.log().Debug("listing campaigns", "db_path", s.DBPath())
+
 	// Read all .db files from the database directory
 	entries, err := os.ReadDir(s.DBPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No campaigns directory yet, return empty list
+			s.log().Debug("campaigns directory does not exist, returning empty list")
 			jsonResult, _ := json.Marshal([]types.Campaign{})
 			return mcp.NewToolResultText(string(jsonResult)), nil
 		}
+		s.log().Error("failed to read campaigns directory", "db_path", s.DBPath(), "error", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read campaigns directory: %v", err)), nil
 	}
 
 	var campaigns []types.Campaign
+	skipped := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
 			continue
@@ -68,12 +79,15 @@ func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolReques
 
 		campaignID := strings.TrimSuffix(entry.Name(), ".db")
 		if !db.IsValidCampaignID(campaignID) {
+			skipped++
 			continue
 		}
 
 		dbPath := filepath.Join(s.DBPath(), entry.Name())
 		database, err := db.Open(dbPath)
 		if err != nil {
+			s.log().Warn("failed to open campaign database during list", "campaign_id", campaignID, "error", err)
+			skipped++
 			continue // Skip databases that can't be opened
 		}
 
@@ -82,6 +96,8 @@ func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolReques
 		database.Close()
 
 		if err != nil || campaign == nil {
+			s.log().Warn("failed to load campaign metadata during list", "campaign_id", campaignID, "error", err)
+			skipped++
 			continue
 		}
 
@@ -91,6 +107,8 @@ func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolReques
 	if campaigns == nil {
 		campaigns = []types.Campaign{}
 	}
+
+	s.log().Info("campaigns listed", "count", len(campaigns), "skipped", skipped)
 
 	jsonResult, _ := json.Marshal(campaigns)
 	return mcp.NewToolResultText(string(jsonResult)), nil
@@ -155,16 +173,22 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req mcp.CallToolReques
 		Relationships: map[string]string{},
 	}
 
+	s.log().Debug("saving character", "campaign_id", campaignID, "name", name, "type", charType, "class", char.Class)
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for save_character", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
 
 	store := memory.NewStore(database.DB)
 	if err := store.SaveCharacter(char); err != nil {
+		s.log().Error("failed to save character", "campaign_id", campaignID, "name", name, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("character saved successfully", "campaign_id", campaignID, "name", name, "type", charType, "character_id", char.ID)
 
 	result := map[string]interface{}{
 		"success":      true,
@@ -268,8 +292,11 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequ
 		}
 	}
 
+	s.log().Debug("updating character", "campaign_id", campaignID, "name", name)
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for update_character", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
@@ -277,8 +304,11 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequ
 	store := memory.NewStore(database.DB)
 	updatedFields, err := store.UpdateCharacter(campaignID, name, update)
 	if err != nil {
+		s.log().Error("failed to update character", "campaign_id", campaignID, "name", name, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("character updated successfully", "campaign_id", campaignID, "name", name, "updated_fields", updatedFields)
 
 	result := map[string]interface{}{
 		"success":        true,
@@ -377,16 +407,22 @@ func (s *Server) handleSavePlotEvent(ctx context.Context, req mcp.CallToolReques
 		Tags:         []string{},
 	}
 
+	s.log().Debug("saving plot event", "campaign_id", campaignID, "session", int(session), "hooks_count", len(hooks))
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for save_plot_event", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
 
 	store := memory.NewStore(database.DB)
 	if err := store.SavePlotEvent(event, hooks); err != nil {
+		s.log().Error("failed to save plot event", "campaign_id", campaignID, "session", int(session), "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("plot event saved successfully", "campaign_id", campaignID, "session", int(session), "event_id", event.ID, "hooks_opened", len(hooks))
 
 	result := map[string]interface{}{
 		"success":      true,
@@ -433,16 +469,22 @@ func (s *Server) handleResolveHook(ctx context.Context, req mcp.CallToolRequest)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	s.log().Debug("resolving hook", "campaign_id", campaignID, "hook_id", hookID)
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for resolve_hook", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
 
 	store := memory.NewStore(database.DB)
 	if err := store.ResolveHook(campaignID, hookID, resolution); err != nil {
+		s.log().Error("failed to resolve hook", "campaign_id", campaignID, "hook_id", hookID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("hook resolved successfully", "campaign_id", campaignID, "hook_id", hookID)
 
 	result := map[string]interface{}{
 		"success": true,

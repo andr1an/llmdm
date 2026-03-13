@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -51,17 +52,22 @@ func (c *Compressor) Compress(ctx context.Context, rawEvents string) (string, er
 	}
 
 	if c.apiKey == "" {
+		slog.Debug("anthropic api key not configured, using fallback compression", "raw_events_length", len(rawEvents))
 		return fallbackCompress(rawEvents), nil
 	}
 
 	summary, err := c.compressAnthropic(ctx, rawEvents)
 	if err != nil {
+		slog.Warn("anthropic compression failed, falling back to deterministic compression", "error", err, "raw_events_length", len(rawEvents))
 		return fallbackCompress(rawEvents), nil
 	}
 	return summary, nil
 }
 
 func (c *Compressor) compressAnthropic(ctx context.Context, rawEvents string) (string, error) {
+	start := time.Now()
+	slog.Debug("starting anthropic compression", "raw_events_length", len(rawEvents))
+
 	payload := map[string]interface{}{
 		"model":       "claude-3-5-sonnet-latest",
 		"max_tokens":  500,
@@ -73,11 +79,13 @@ func (c *Compressor) compressAnthropic(ctx context.Context, rawEvents string) (s
 
 	body, err := json.Marshal(payload)
 	if err != nil {
+		slog.Error("failed to marshal anthropic payload", "error", err)
 		return "", fmt.Errorf("marshal anthropic payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
 	if err != nil {
+		slog.Error("failed to create anthropic request", "error", err)
 		return "", fmt.Errorf("create anthropic request: %w", err)
 	}
 	req.Header.Set("content-type", "application/json")
@@ -86,11 +94,13 @@ func (c *Compressor) compressAnthropic(ctx context.Context, rawEvents string) (s
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		slog.Error("anthropic api request failed", "error", err, "duration_ms", time.Since(start).Milliseconds())
 		return "", fmt.Errorf("anthropic request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Error("anthropic api returned error status", "status_code", resp.StatusCode, "duration_ms", time.Since(start).Milliseconds())
 		return "", fmt.Errorf("anthropic returned status %d", resp.StatusCode)
 	}
 
@@ -101,6 +111,7 @@ func (c *Compressor) compressAnthropic(ctx context.Context, rawEvents string) (s
 		} `json:"content"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		slog.Error("failed to decode anthropic response", "error", err)
 		return "", fmt.Errorf("decode anthropic response: %w", err)
 	}
 
@@ -112,8 +123,14 @@ func (c *Compressor) compressAnthropic(ctx context.Context, rawEvents string) (s
 	}
 	summary := strings.TrimSpace(strings.Join(parts, "\n"))
 	if summary == "" {
+		slog.Error("anthropic returned empty summary")
 		return "", fmt.Errorf("anthropic returned empty summary")
 	}
+
+	slog.Info("anthropic compression successful",
+		"summary_length", len(summary),
+		"duration_ms", time.Since(start).Milliseconds(),
+		"content_blocks", len(response.Content))
 	return summary, nil
 }
 

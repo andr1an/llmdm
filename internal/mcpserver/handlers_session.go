@@ -29,8 +29,11 @@ func (s *Server) handleStartSession(ctx context.Context, req mcp.CallToolRequest
 		recentSessions = 3
 	}
 
+	s.log().Debug("starting session", "campaign_id", campaignID, "session", sessionNumber, "recent_sessions", recentSessions)
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for start_session", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
@@ -104,6 +107,13 @@ func (s *Server) handleStartSession(ctx context.Context, req mcp.CallToolRequest
 		DMSystemPrompt:     dm.BuildSystemPrompt(briefText, openHooks, worldFlags),
 	}
 
+	s.log().Info("session started successfully",
+		"campaign_id", campaignID,
+		"session", sessionNumber,
+		"active_characters", len(activeCharacters),
+		"open_hooks", len(openHooks),
+		"world_flags", len(worldFlags))
+
 	jsonResult, _ := json.Marshal(result)
 	return mcp.NewToolResultText(string(jsonResult)), nil
 }
@@ -130,8 +140,11 @@ func (s *Server) handleEndSession(ctx context.Context, req mcp.CallToolRequest) 
 	}
 	sessionNumber := int(sessionNumberRaw)
 
+	s.log().Debug("ending session", "campaign_id", campaignID, "session", sessionNumber, "raw_events_length", len(rawEvents))
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for end_session", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
@@ -140,6 +153,7 @@ func (s *Server) handleEndSession(ctx context.Context, req mcp.CallToolRequest) 
 	compressor := session.NewCompressor(s.cfg.AnthropicAPIKey)
 	compressedSummary, err := compressor.Compress(ctx, rawEvents)
 	if err != nil {
+		s.log().Error("session compression failed", "campaign_id", campaignID, "session", sessionNumber, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
@@ -164,8 +178,16 @@ func (s *Server) handleEndSession(ctx context.Context, req mcp.CallToolRequest) 
 	}
 
 	if err := store.AdvanceCampaignSession(campaignID, sessionNumber+1); err != nil {
+		s.log().Error("failed to advance campaign session", "campaign_id", campaignID, "session", sessionNumber, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("session ended successfully",
+		"campaign_id", campaignID,
+		"session", sessionNumber,
+		"summary_length", len(compressedSummary),
+		"hooks_opened", hooksOpened,
+		"hooks_resolved", hooksResolved)
 
 	result := map[string]interface{}{
 		"success":            true,
@@ -195,8 +217,11 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	s.log().Debug("creating checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "note_length", len(note))
+
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
+		s.log().Error("failed to open campaign database for checkpoint", "campaign_id", campaignID, "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer database.Close()
@@ -204,8 +229,11 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 	store := memory.NewStore(database.DB)
 	checkpoint, err := store.CreateCheckpoint(campaignID, int(sessionNumberRaw), note)
 	if err != nil {
+		s.log().Error("failed to create checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	s.log().Info("checkpoint created", "campaign_id", campaignID, "session", int(sessionNumberRaw), "checkpoint_id", checkpoint.ID)
 
 	result := map[string]interface{}{
 		"success":       true,
