@@ -20,8 +20,9 @@ A Go MCP server for D&D campaign state management, dice rolling, and session mem
 ## Repository Layout
 
 ```text
-cmd/server/main.go         # MCP server bootstrap, transport, tool registration/handlers
+cmd/server/main.go         # Entry point and server bootstrap
 config/config.go           # Environment config parsing and defaults
+internal/mcpserver/        # MCP server core, transport, tool registration, and handlers
 internal/db/               # SQLite open/migrations and embedded schema
 internal/dice/             # Dice parser/roller and log models
 internal/memory/           # Data access layer for campaign entities
