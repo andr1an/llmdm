@@ -127,11 +127,12 @@ type SessionMeta struct {
 
 // Checkpoint represents a mid-session snapshot.
 type Checkpoint struct {
-	ID         string `json:"id"`
-	CampaignID string `json:"campaign_id"`
-	Session    int    `json:"session"`
-	Note       string `json:"note"`
-	CreatedAt  string `json:"created_at"`
+	ID         string                 `json:"id"`
+	CampaignID string                 `json:"campaign_id"`
+	Session    int                    `json:"session"`
+	Note       string                 `json:"note"`
+	Data       map[string]interface{} `json:"data,omitempty"`
+	CreatedAt  string                 `json:"created_at"`
 }
 
 // RollRecord is a logged dice roll.

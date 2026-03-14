@@ -476,19 +476,25 @@ func (s *Store) GetWorldFlags(campaignID string) (map[string]string, error) {
 }
 
 // CreateCheckpoint stores a mid-session checkpoint note.
-func (s *Store) CreateCheckpoint(campaignID string, session int, note string) (*types.Checkpoint, error) {
+func (s *Store) CreateCheckpoint(campaignID string, session int, note string, data map[string]interface{}) (*types.Checkpoint, error) {
 	checkpoint := &types.Checkpoint{
 		ID:         uuid.New().String(),
 		CampaignID: campaignID,
 		Session:    session,
 		Note:       note,
+		Data:       data,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
+	var dataJSON []byte
+	if len(data) > 0 {
+		dataJSON, _ = json.Marshal(data)
+	}
+
 	_, err := s.db.Exec(`
-		INSERT INTO checkpoints (id, campaign_id, session, note, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, checkpoint.ID, checkpoint.CampaignID, checkpoint.Session, checkpoint.Note, checkpoint.CreatedAt)
+		INSERT INTO checkpoints (id, campaign_id, session, note, data, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, checkpoint.ID, checkpoint.CampaignID, checkpoint.Session, checkpoint.Note, string(dataJSON), checkpoint.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert checkpoint: %w", err)
 	}
@@ -499,20 +505,82 @@ func (s *Store) CreateCheckpoint(campaignID string, session int, note string) (*
 // GetLatestCheckpoint returns the newest checkpoint for the given campaign/session.
 func (s *Store) GetLatestCheckpoint(campaignID string, session int) (*types.Checkpoint, error) {
 	var cp types.Checkpoint
+	var dataJSON sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, campaign_id, session, note, created_at
+		SELECT id, campaign_id, session, note, data, created_at
 		FROM checkpoints
 		WHERE campaign_id = ? AND session = ?
 		ORDER BY created_at DESC, rowid DESC
 		LIMIT 1
-	`, campaignID, session).Scan(&cp.ID, &cp.CampaignID, &cp.Session, &cp.Note, &cp.CreatedAt)
+	`, campaignID, session).Scan(&cp.ID, &cp.CampaignID, &cp.Session, &cp.Note, &dataJSON, &cp.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query latest checkpoint: %w", err)
 	}
+	if dataJSON.Valid && dataJSON.String != "" {
+		if err := json.Unmarshal([]byte(dataJSON.String), &cp.Data); err != nil {
+			return nil, fmt.Errorf("decode checkpoint data: %w", err)
+		}
+	}
 	return &cp, nil
+}
+
+// ListCheckpoints returns checkpoints for a campaign/session, ordered by creation time (oldest first).
+// If limit > 0, returns only the most recent limit checkpoints.
+func (s *Store) ListCheckpoints(campaignID string, session int, limit int) ([]types.Checkpoint, error) {
+	query := `
+		SELECT id, campaign_id, session, note, data, created_at
+		FROM checkpoints
+		WHERE campaign_id = ? AND session = ?
+		ORDER BY created_at ASC, rowid ASC
+	`
+	args := []interface{}{campaignID, session}
+
+	if limit > 0 {
+		// Get the last N checkpoints by using a subquery to get IDs in reverse order
+		query = `
+			SELECT id, campaign_id, session, note, data, created_at
+			FROM checkpoints
+			WHERE campaign_id = ? AND session = ?
+			AND id IN (
+				SELECT id FROM checkpoints
+				WHERE campaign_id = ? AND session = ?
+				ORDER BY created_at DESC, rowid DESC
+				LIMIT ?
+			)
+			ORDER BY created_at ASC, rowid ASC
+		`
+		args = []interface{}{campaignID, session, campaignID, session, limit}
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query checkpoints: %w", err)
+	}
+	defer rows.Close()
+
+	checkpoints := make([]types.Checkpoint, 0)
+	for rows.Next() {
+		var cp types.Checkpoint
+		var dataJSON sql.NullString
+		err := rows.Scan(&cp.ID, &cp.CampaignID, &cp.Session, &cp.Note, &dataJSON, &cp.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("scan checkpoint: %w", err)
+		}
+		if dataJSON.Valid && dataJSON.String != "" {
+			if err := json.Unmarshal([]byte(dataJSON.String), &cp.Data); err != nil {
+				return nil, fmt.Errorf("decode checkpoint data: %w", err)
+			}
+		}
+		checkpoints = append(checkpoints, cp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate checkpoints: %w", err)
+	}
+
+	return checkpoints, nil
 }
 
 // UpsertSession stores (or replaces) a completed session summary.

@@ -266,8 +266,18 @@ func (s *Server) registerTools() {
 		mcp.WithString("campaign_id", mcp.Required(), mcp.Description("Campaign ID")),
 		mcp.WithNumber("session", mcp.Required(), mcp.Description("Current session number")),
 		mcp.WithString("note", mcp.Required(), mcp.Description("Checkpoint note"), mcp.MaxLength(maxCheckpointNoteLength)),
+		mcp.WithObject("data", mcp.Description("Optional turn data (turn_id, sequence, player_action, narrative, tool_results)")),
 	)
 	s.mcp.AddTool(checkpointTool, s.handleCheckpoint)
+
+	// get_turn_history tool
+	getTurnHistoryTool := mcp.NewTool("get_turn_history",
+		mcp.WithDescription("Retrieve turn history from checkpoints for a session."),
+		mcp.WithString("campaign_id", mcp.Required(), mcp.Description("Campaign ID")),
+		mcp.WithNumber("session", mcp.Required(), mcp.Description("Session number")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of turns to return (default: 50)")),
+	)
+	s.mcp.AddTool(getTurnHistoryTool, s.handleGetTurnHistory)
 
 	// get_session_brief tool
 	getSessionBriefTool := mcp.NewTool("get_session_brief",

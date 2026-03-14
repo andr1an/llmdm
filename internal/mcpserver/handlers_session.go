@@ -217,7 +217,16 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	s.log().Debug("creating checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "note_length", len(note))
+	// Get optional data parameter
+	args := req.GetArguments()
+	var data map[string]interface{}
+	if dataRaw, ok := args["data"]; ok {
+		if dataMap, ok := dataRaw.(map[string]interface{}); ok {
+			data = dataMap
+		}
+	}
+
+	s.log().Debug("creating checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "note_length", len(note), "has_data", len(data) > 0)
 
 	database, err := s.openCampaignDB(campaignID)
 	if err != nil {
@@ -227,7 +236,7 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 	defer database.Close()
 
 	store := memory.NewStore(database.DB)
-	checkpoint, err := store.CreateCheckpoint(campaignID, int(sessionNumberRaw), note)
+	checkpoint, err := store.CreateCheckpoint(campaignID, int(sessionNumberRaw), note, data)
 	if err != nil {
 		s.log().Error("failed to create checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "error", err)
 		return mcp.NewToolResultError(err.Error()), nil
@@ -238,6 +247,56 @@ func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) 
 	result := map[string]interface{}{
 		"success":       true,
 		"checkpoint_id": checkpoint.ID,
+	}
+	jsonResult, _ := json.Marshal(result)
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleGetTurnHistory(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	campaignID, err := req.RequireString("campaign_id")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	sessionNumberRaw, err := req.RequireFloat("session")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	limit := int(req.GetFloat("limit", 50))
+	if limit <= 0 {
+		limit = 50
+	}
+
+	s.log().Debug("getting turn history", "campaign_id", campaignID, "session", int(sessionNumberRaw), "limit", limit)
+
+	database, err := s.openCampaignDB(campaignID)
+	if err != nil {
+		s.log().Error("failed to open campaign database for get_turn_history", "campaign_id", campaignID, "error", err)
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer database.Close()
+
+	store := memory.NewStore(database.DB)
+	checkpoints, err := store.ListCheckpoints(campaignID, int(sessionNumberRaw), limit)
+	if err != nil {
+		s.log().Error("failed to list checkpoints", "campaign_id", campaignID, "session", int(sessionNumberRaw), "error", err)
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// Extract turn data from checkpoints
+	turns := make([]map[string]interface{}, 0, len(checkpoints))
+	for _, cp := range checkpoints {
+		if len(cp.Data) > 0 {
+			turns = append(turns, cp.Data)
+		}
+	}
+
+	s.log().Info("turn history retrieved", "campaign_id", campaignID, "session", int(sessionNumberRaw), "turns", len(turns))
+
+	result := map[string]interface{}{
+		"campaign_id": campaignID,
+		"session":     int(sessionNumberRaw),
+		"turns":       turns,
+		"count":       len(turns),
 	}
 	jsonResult, _ := json.Marshal(result)
 	return mcp.NewToolResultText(string(jsonResult)), nil

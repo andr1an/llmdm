@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   campaign_id TEXT NOT NULL REFERENCES campaigns(id),
   session     INTEGER NOT NULL,
   note        TEXT NOT NULL,
+  data        TEXT,        -- JSON turn data
   created_at  TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

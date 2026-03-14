@@ -94,6 +94,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 			campaign_id TEXT NOT NULL REFERENCES campaigns(id),
 			session INTEGER NOT NULL,
 			note TEXT NOT NULL,
+			data TEXT,
 			created_at TEXT DEFAULT CURRENT_TIMESTAMP
 		);
 	`
@@ -509,11 +510,11 @@ func TestCheckpointLifecycle(t *testing.T) {
 	campaign, err := store.CreateCampaign("Test Campaign", "")
 	require.NoError(t, err)
 
-	cp1, err := store.CreateCheckpoint(campaign.ID, 3, "Party reaches the ruined watchtower.")
+	cp1, err := store.CreateCheckpoint(campaign.ID, 3, "Party reaches the ruined watchtower.", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, cp1.ID)
 
-	cp2, err := store.CreateCheckpoint(campaign.ID, 3, "They uncover a hidden cellar map.")
+	cp2, err := store.CreateCheckpoint(campaign.ID, 3, "They uncover a hidden cellar map.", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, cp2.ID)
 

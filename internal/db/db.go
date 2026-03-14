@@ -75,6 +75,9 @@ func (db *DB) Migrate() error {
 	// Add gold column to existing databases (ignore error if column exists)
 	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN gold INTEGER DEFAULT 0`)
 
+	// Add data column to checkpoints table (ignore error if column exists)
+	_, _ = db.Exec(`ALTER TABLE checkpoints ADD COLUMN data TEXT`)
+
 	slog.Debug("migrations completed successfully", "db_path", db.path, "duration_ms", time.Since(start).Milliseconds())
 	return nil
 }

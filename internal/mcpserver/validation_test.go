@@ -109,6 +109,7 @@ func TestToolRegistrationIntegrity(t *testing.T) {
 		"get_npc_relationships",
 		"get_roll_history",
 		"get_session_brief",
+		"get_turn_history",
 		"get_world_flags",
 		"list_campaigns",
 		"list_characters",
