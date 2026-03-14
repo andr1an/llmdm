@@ -13,7 +13,7 @@ A Go MCP server for D&D campaign state management, dice rolling, and session mem
 ## Tech Stack
 
 - Go `1.25.6`
-- MCP framework: `github.com/mark3labs/mcp-go`
+- MCP framework: `github.com/modelcontextprotocol/go-sdk`
 - Database: SQLite (`modernc.org/sqlite`)
 - Config loading: `.env` via `github.com/joho/godotenv`
 
@@ -156,6 +156,7 @@ Use this when configuring Claude to launch the MCP server as a local subprocess:
 ### Campaign Memory
 
 - `create_campaign`
+- `list_campaigns`
 - `save_character`
 - `update_character`
 - `get_character`
@@ -171,6 +172,7 @@ Use this when configuring Claude to launch the MCP server as a local subprocess:
 - `start_session`
 - `end_session`
 - `checkpoint`
+- `get_turn_history`
 - `get_session_brief`
 - `list_sessions`
 - `get_npc_relationships`
