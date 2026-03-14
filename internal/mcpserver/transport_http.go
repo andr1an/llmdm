@@ -6,16 +6,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func (s *Server) serveHTTP() error {
 	s.log().Debug("configuring streamable HTTP server")
-	mcpHandler := server.NewStreamableHTTPServer(
-		s.mcp,
-		server.WithEndpointPath(s.cfg.HTTPEndpoint),
-		server.WithHeartbeatInterval(30*time.Second),
-		server.WithStateLess(false),
+	mcpHandler := mcp.NewStreamableHTTPHandler(
+		func(r *http.Request) *mcp.Server { return s.mcp },
+		&mcp.StreamableHTTPOptions{
+			Stateless:      false,
+			Logger:         s.logger,
+			SessionTimeout: 5 * time.Minute,
+		},
 	)
 
 	endpoint := "/" + strings.Trim(s.cfg.HTTPEndpoint, "/")

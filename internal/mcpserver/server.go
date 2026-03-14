@@ -1,18 +1,20 @@
 package mcpserver
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/andr1an/llmdm/config"
 )
 
 // Server holds the MCP server and its dependencies.
 type Server struct {
-	mcp    *server.MCPServer
+	mcp    *mcp.Server
 	cfg    *config.Config
 	dbPath string
 	logger *slog.Logger
@@ -26,14 +28,17 @@ func New(cfg *config.Config, logger *slog.Logger) *Server {
 		logger: logger,
 	}
 
-	srv.mcp = server.NewMCPServer(
-		"D&D Campaign Memory",
-		"1.0.0",
-		server.WithToolCapabilities(false),
-		server.WithRecovery(),
-	)
+	srv.mcp = mcp.NewServer(&mcp.Implementation{
+		Name:    "D&D Campaign Memory",
+		Version: "1.0.0",
+	}, &mcp.ServerOptions{
+		Logger:    logger,
+		KeepAlive: 30 * time.Second,
+	})
 
-	srv.registerTools()
+	srv.registerDiceTools()    // New SDK dice tools
+	srv.registerMemoryTools()  // New SDK memory tools
+	srv.registerSessionTools() // New SDK session tools
 	return srv
 }
 
@@ -59,7 +64,7 @@ func (s *Server) Serve() error {
 		}
 		return nil
 	default:
-		if err := server.ServeStdio(s.mcp); err != nil {
+		if err := s.mcp.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			return fmt.Errorf("stdio server error: %w", err)
 		}
 		return nil

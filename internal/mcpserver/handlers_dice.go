@@ -2,145 +2,95 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/andr1an/llmdm/internal/dice"
 	"github.com/andr1an/llmdm/internal/types"
 )
 
-func (s *Server) handleRoll(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	notation, err := req.RequireString("notation")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	reason := req.GetString("reason", "")
-	character := req.GetString("character", "")
-	session := int(req.GetFloat("session", 0))
-	advantage := req.GetBool("advantage", false)
-	disadvantage := req.GetBool("disadvantage", false)
+func (s *Server) handleRoll(ctx context.Context, req *mcp.CallToolRequest, input RollInput) (*mcp.CallToolResult, RollOutput, error) {
 	s.log().Debug(
 		"roll request",
-		"campaign_id", campaignID,
-		"notation", notation,
-		"character", character,
-		"session", session,
-		"advantage", advantage,
-		"disadvantage", disadvantage,
+		"campaign_id", input.CampaignID,
+		"notation", input.Notation,
+		"character", input.Character,
+		"session", input.Session,
+		"advantage", input.Advantage,
+		"disadvantage", input.Disadvantage,
 	)
 
 	var result types.RollResult
+	var err error
 
-	if advantage && disadvantage {
+	if input.Advantage && input.Disadvantage {
 		// Advantage and disadvantage cancel out
-		result, err = dice.Roll(notation)
-	} else if advantage {
+		result, err = dice.Roll(input.Notation)
+	} else if input.Advantage {
 		// Parse notation to get modifier
-		parsed, parseErr := dice.Parse(notation)
+		parsed, parseErr := dice.Parse(input.Notation)
 		if parseErr != nil {
-			return mcp.NewToolResultError(parseErr.Error()), nil
+			return nil, RollOutput{}, wrapError("parse notation", parseErr)
 		}
 		result, err = dice.RollWithAdvantage(parsed.Modifier)
-	} else if disadvantage {
-		parsed, parseErr := dice.Parse(notation)
+	} else if input.Disadvantage {
+		parsed, parseErr := dice.Parse(input.Notation)
 		if parseErr != nil {
-			return mcp.NewToolResultError(parseErr.Error()), nil
+			return nil, RollOutput{}, wrapError("parse notation", parseErr)
 		}
 		result, err = dice.RollWithDisadvantage(parsed.Modifier)
 	} else {
-		result, err = dice.Roll(notation)
+		result, err = dice.Roll(input.Notation)
 	}
 
 	if err != nil {
-		s.log().Debug("roll failed", "campaign_id", campaignID, "notation", notation, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Debug("roll failed", "campaign_id", input.CampaignID, "notation", input.Notation, "error", err)
+		return nil, RollOutput{}, wrapError("roll dice", err)
 	}
 
 	// Log the roll
-	database, err := s.openCampaignDB(campaignID)
+	err = s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		logger := dice.NewLogger(dbCtx.DB)
+		return logger.Log(input.CampaignID, input.Session, input.Character, input.Reason, result, input.Advantage, input.Disadvantage)
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, RollOutput{}, wrapError("log roll", err)
 	}
-	defer database.Close()
+	s.log().Debug("roll logged", "campaign_id", input.CampaignID, "roll_id", result.RollID, "total", result.Total)
 
-	logger := dice.NewLogger(database.DB)
-	if err := logger.Log(campaignID, session, character, reason, result, advantage, disadvantage); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("roll succeeded but logging failed: %v", err)), nil
-	}
-	s.log().Debug("roll logged", "campaign_id", campaignID, "roll_id", result.RollID, "total", result.Total)
-
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, RollOutput{RollResult: result}, nil
 }
 
-func (s *Server) handleRollContested(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	attacker, err := req.RequireString("attacker")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	defender, err := req.RequireString("defender")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	attackerNotation, err := req.RequireString("attacker_notation")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	defenderNotation, err := req.RequireString("defender_notation")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	contestType, err := req.RequireString("contest_type")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	session := int(req.GetFloat("session", 0))
+func (s *Server) handleRollContested(ctx context.Context, req *mcp.CallToolRequest, input RollContestedInput) (*mcp.CallToolResult, RollContestedOutput, error) {
 	s.log().Debug(
 		"contested roll request",
-		"campaign_id", campaignID,
-		"attacker", attacker,
-		"defender", defender,
-		"contest_type", contestType,
-		"session", session,
+		"campaign_id", input.CampaignID,
+		"attacker", input.Attacker,
+		"defender", input.Defender,
+		"contest_type", input.ContestType,
+		"session", input.Session,
 	)
 
 	// Roll both
-	attackerResult, err := dice.Roll(attackerNotation)
+	attackerResult, err := dice.Roll(input.AttackerNotation)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("attacker roll failed: %v", err)), nil
+		return nil, RollContestedOutput{}, wrapError("attacker roll", err)
 	}
 
-	defenderResult, err := dice.Roll(defenderNotation)
+	defenderResult, err := dice.Roll(input.DefenderNotation)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("defender roll failed: %v", err)), nil
+		return nil, RollContestedOutput{}, wrapError("defender roll", err)
 	}
 
 	// Determine winner
 	var winner string
 	margin := attackerResult.Total - defenderResult.Total
 	if margin > 0 {
-		winner = attacker
+		winner = input.Attacker
 	} else if margin < 0 {
-		winner = defender
+		winner = input.Defender
 		margin = -margin
 	} else {
 		winner = "tie"
@@ -155,149 +105,119 @@ func (s *Server) handleRollContested(ctx context.Context, req mcp.CallToolReques
 	}
 
 	// Log both rolls
-	database, err := s.openCampaignDB(campaignID)
+	err = s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		logger := dice.NewLogger(dbCtx.DB)
+		if err := logger.Log(input.CampaignID, input.Session, input.Attacker, input.ContestType+" (attacker)", attackerResult, false, false); err != nil {
+			return fmt.Errorf("log attacker roll: %w", err)
+		}
+		if err := logger.Log(input.CampaignID, input.Session, input.Defender, input.ContestType+" (defender)", defenderResult, false, false); err != nil {
+			return fmt.Errorf("log defender roll: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, RollContestedOutput{}, wrapError("log contested rolls", err)
 	}
-	defer database.Close()
 
-	logger := dice.NewLogger(database.DB)
-	if err := logger.Log(campaignID, session, attacker, contestType+" (attacker)", attackerResult, false, false); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("contested roll succeeded but attacker logging failed: %v", err)), nil
-	}
-	if err := logger.Log(campaignID, session, defender, contestType+" (defender)", defenderResult, false, false); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("contested roll succeeded but defender logging failed: %v", err)), nil
-	}
 	s.log().Debug(
 		"contested roll completed",
-		"campaign_id", campaignID,
+		"campaign_id", input.CampaignID,
 		"winner", winner,
 		"margin", margin,
 		"attacker_total", attackerResult.Total,
 		"defender_total", defenderResult.Total,
 	)
 
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, RollContestedOutput{Result: result}, nil
 }
 
-func (s *Server) handleRollSavingThrow(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleRollSavingThrow(ctx context.Context, req *mcp.CallToolRequest, input RollSavingThrowInput) (*mcp.CallToolResult, RollSavingThrowOutput, error) {
+	reason := input.Reason
+	if reason == "" {
+		reason = input.Stat + " saving throw"
 	}
 
-	character, err := req.RequireString("character")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	stat, err := req.RequireString("stat")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	modifier, err := req.RequireFloat("modifier")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	dc, err := req.RequireFloat("dc")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	reason := req.GetString("reason", stat+" saving throw")
-	session := int(req.GetFloat("session", 0))
 	s.log().Debug(
 		"saving throw request",
-		"campaign_id", campaignID,
-		"character", character,
-		"stat", stat,
-		"modifier", modifier,
-		"dc", dc,
-		"session", session,
+		"campaign_id", input.CampaignID,
+		"character", input.Character,
+		"stat", input.Stat,
+		"modifier", input.Modifier,
+		"dc", input.DC,
+		"session", input.Session,
 	)
 
 	// Roll 1d20
 	notation := "1d20"
-	if modifier >= 0 {
-		notation += "+" + strconv.Itoa(int(modifier))
+	if input.Modifier >= 0 {
+		notation += "+" + strconv.Itoa(int(input.Modifier))
 	} else {
-		notation += strconv.Itoa(int(modifier))
+		notation += strconv.Itoa(int(input.Modifier))
 	}
 
 	rollResult, err := dice.Roll(notation)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, RollSavingThrowOutput{}, wrapError("roll saving throw", err)
 	}
 
 	result := types.SavingThrowResult{
 		Total:    rollResult.Total,
 		Rolled:   rollResult.Rolls[0],
-		Modifier: int(modifier),
-		DC:       int(dc),
-		Success:  rollResult.Total >= int(dc),
+		Modifier: int(input.Modifier),
+		DC:       int(input.DC),
+		Success:  rollResult.Total >= int(input.DC),
 		RollID:   rollResult.RollID,
 	}
 
 	// Log the roll
-	database, err := s.openCampaignDB(campaignID)
+	err = s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		logger := dice.NewLogger(dbCtx.DB)
+		return logger.Log(input.CampaignID, input.Session, input.Character, reason, rollResult, false, false)
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, RollSavingThrowOutput{}, wrapError("log saving throw", err)
 	}
-	defer database.Close()
 
-	logger := dice.NewLogger(database.DB)
-	if err := logger.Log(campaignID, session, character, reason, rollResult, false, false); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("saving throw succeeded but logging failed: %v", err)), nil
-	}
 	s.log().Debug(
 		"saving throw completed",
-		"campaign_id", campaignID,
-		"character", character,
+		"campaign_id", input.CampaignID,
+		"character", input.Character,
 		"total", result.Total,
 		"dc", result.DC,
 		"success", result.Success,
 		"roll_id", result.RollID,
 	)
 
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, RollSavingThrowOutput{Result: result}, nil
 }
 
-func (s *Server) handleGetRollHistory(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleGetRollHistory(ctx context.Context, req *mcp.CallToolRequest, input GetRollHistoryInput) (*mcp.CallToolResult, GetRollHistoryOutput, error) {
+	limit := input.Limit
+	if limit == 0 {
+		limit = 50
 	}
 
-	character := req.GetString("character", "")
-	session := int(req.GetFloat("session", 0))
-	limit := int(req.GetFloat("limit", 50))
 	s.log().Debug(
 		"roll history request",
-		"campaign_id", campaignID,
-		"character", character,
-		"session", session,
+		"campaign_id", input.CampaignID,
+		"character", input.Character,
+		"session", input.Session,
 		"limit", limit,
 	)
 
-	database, err := s.openCampaignDB(campaignID)
+	var records []types.RollRecord
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		logger := dice.NewLogger(dbCtx.DB)
+		var err error
+		records, err = logger.GetHistory(input.CampaignID, input.Character, input.Session, limit)
+		return err
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, GetRollHistoryOutput{}, wrapError("get roll history", err)
 	}
-	defer database.Close()
 
-	logger := dice.NewLogger(database.DB)
-	records, err := logger.GetHistory(campaignID, character, session, limit)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	s.log().Debug("roll history loaded", "campaign_id", campaignID, "count", len(records))
-
-	jsonResult, _ := json.Marshal(records)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	s.log().Debug("roll history loaded", "campaign_id", input.CampaignID, "count", len(records))
+	return nil, GetRollHistoryOutput{Records: records}, nil
 }
 
 // === Campaign Memory Handlers ===

@@ -2,72 +2,64 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/andr1an/llmdm/internal/db"
 	"github.com/andr1an/llmdm/internal/memory"
 	"github.com/andr1an/llmdm/internal/types"
 )
 
-func (s *Server) handleCreateCampaign(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name, err := req.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleCreateCampaign(ctx context.Context, req *mcp.CallToolRequest, input CreateCampaignInput) (*mcp.CallToolResult, CreateCampaignOutput, error) {
+	if err := validateCampaignName(input.Name); err != nil {
+		return nil, CreateCampaignOutput{}, err
 	}
-	if err := validateCampaignName(name); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	description := req.GetString("description", "")
 
-	// Create a new campaign DB
-	campaignID := generateCampaignID(name)
-	s.log().Debug("creating campaign", "campaign_id", campaignID, "name", name)
+	campaignID := generateCampaignID(input.Name)
+	s.log().Debug("creating campaign", "campaign_id", campaignID, "name", input.Name)
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		s.log().Error("failed to open campaign database for create_campaign", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	campaign, err := store.CreateCampaignWithID(campaignID, name, description)
+	var campaign *types.Campaign
+	var dbPath string
+	err := s.withDB(ctx, campaignID, func(dbCtx *DBContext) error {
+		var err error
+		campaign, err = dbCtx.Store.CreateCampaignWithID(campaignID, input.Name, input.Description)
+		if err != nil {
+			return err
+		}
+		// Get db path (we need to access the underlying database struct)
+		return nil
+	})
 	if err != nil {
 		s.log().Error("failed to create campaign", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, CreateCampaignOutput{}, wrapError("create campaign", err)
 	}
 
-	s.log().Info("campaign created successfully", "campaign_id", campaignID, "name", name, "db_path", database.Path())
+	// Get db path by reconstructing it
+	dbPath, _ = db.CampaignDBPath(s.dbPath, campaignID)
+	s.log().Info("campaign created successfully", "campaign_id", campaignID, "name", input.Name, "db_path", dbPath)
 
-	result := map[string]interface{}{
-		"campaign_id": campaignID,
-		"db_path":     database.Path(),
-		"campaign":    campaign,
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, CreateCampaignOutput{
+		CampaignID: campaignID,
+		DBPath:     dbPath,
+		Campaign:   *campaign,
+	}, nil
 }
 
-func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *Server) handleListCampaigns(ctx context.Context, req *mcp.CallToolRequest, input ListCampaignsInput) (*mcp.CallToolResult, ListCampaignsOutput, error) {
 	s.log().Debug("listing campaigns", "db_path", s.DBPath())
 
-	// Read all .db files from the database directory
 	entries, err := os.ReadDir(s.DBPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No campaigns directory yet, return empty list
 			s.log().Debug("campaigns directory does not exist, returning empty list")
-			jsonResult, _ := json.Marshal([]types.Campaign{})
-			return mcp.NewToolResultText(string(jsonResult)), nil
+			return nil, ListCampaignsOutput{Campaigns: []types.Campaign{}}, nil
 		}
 		s.log().Error("failed to read campaigns directory", "db_path", s.DBPath(), "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("failed to read campaigns directory: %v", err)), nil
+		return nil, ListCampaignsOutput{}, wrapError("read campaigns directory", err)
 	}
 
 	var campaigns []types.Campaign
@@ -88,7 +80,7 @@ func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolReques
 		if err != nil {
 			s.log().Warn("failed to open campaign database during list", "campaign_id", campaignID, "error", err)
 			skipped++
-			continue // Skip databases that can't be opened
+			continue
 		}
 
 		store := memory.NewStore(database.DB)
@@ -109,440 +101,277 @@ func (s *Server) handleListCampaigns(ctx context.Context, req mcp.CallToolReques
 	}
 
 	s.log().Info("campaigns listed", "count", len(campaigns), "skipped", skipped)
-
-	jsonResult, _ := json.Marshal(campaigns)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, ListCampaignsOutput{Campaigns: campaigns}, nil
 }
 
-func (s *Server) handleSaveCharacter(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolRequest, input SaveCharacterInput) (*mcp.CallToolResult, SaveCharacterOutput, error) {
+	if err := validateMaxLength("backstory", input.Backstory, maxCharacterBackstoryLength); err != nil {
+		return nil, SaveCharacterOutput{}, err
 	}
-	name, err := req.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	if err := validateMaxLength("notes", input.Notes, maxCharacterNotesLength); err != nil {
+		return nil, SaveCharacterOutput{}, err
 	}
-	charType, err := req.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+
+	level := input.Level
+	if level == 0 {
+		level = 1
 	}
-	hpCurrent, err := req.RequireFloat("hp_current")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	hpMax, err := req.RequireFloat("hp_max")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	backstory := req.GetString("backstory", "")
-	if err := validateMaxLength("backstory", backstory, maxCharacterBackstoryLength); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	notes := req.GetString("notes", "")
-	if err := validateMaxLength("notes", notes, maxCharacterNotesLength); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	status := input.Status
+	if status == "" {
+		status = "active"
 	}
 
 	char := &types.Character{
-		CampaignID: campaignID,
-		Name:       name,
-		Type:       charType,
-		Class:      req.GetString("class", ""),
-		Race:       req.GetString("race", ""),
-		Level:      int(req.GetFloat("level", 1)),
+		CampaignID: input.CampaignID,
+		Name:       input.Name,
+		Type:       input.Type,
+		Class:      input.Class,
+		Race:       input.Race,
+		Level:      level,
 		HP: types.HP{
-			Current: int(hpCurrent),
-			Max:     int(hpMax),
+			Current: int(input.HPCurrent),
+			Max:     int(input.HPMax),
 		},
 		Stats: types.Stats{
-			STR: int(req.GetFloat("str", 10)),
-			DEX: int(req.GetFloat("dex", 10)),
-			CON: int(req.GetFloat("con", 10)),
-			INT: int(req.GetFloat("int_stat", 10)),
-			WIS: int(req.GetFloat("wis", 10)),
-			CHA: int(req.GetFloat("cha", 10)),
+			STR: input.STR,
+			DEX: input.DEX,
+			CON: input.CON,
+			INT: input.INTStat,
+			WIS: input.WIS,
+			CHA: input.CHA,
 		},
-		Gold:          int(req.GetFloat("gold", 0)),
-		Backstory:     backstory,
-		Status:        req.GetString("status", "active"),
-		Notes:         notes,
+		Gold:          input.Gold,
+		Backstory:     input.Backstory,
+		Status:        status,
+		Notes:         input.Notes,
 		Inventory:     []string{},
 		Conditions:    []string{},
 		PlotFlags:     []string{},
 		Relationships: map[string]string{},
 	}
 
-	s.log().Debug("saving character", "campaign_id", campaignID, "name", name, "type", charType, "class", char.Class)
+	s.log().Debug("saving character", "campaign_id", input.CampaignID, "name", input.Name, "type", input.Type, "class", char.Class)
 
-	database, err := s.openCampaignDB(campaignID)
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		return dbCtx.Store.SaveCharacter(char)
+	})
 	if err != nil {
-		s.log().Error("failed to open campaign database for save_character", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	if err := store.SaveCharacter(char); err != nil {
-		s.log().Error("failed to save character", "campaign_id", campaignID, "name", name, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Error("failed to save character", "campaign_id", input.CampaignID, "name", input.Name, "error", err)
+		return nil, SaveCharacterOutput{}, wrapError("save character", err)
 	}
 
-	s.log().Info("character saved successfully", "campaign_id", campaignID, "name", name, "type", charType, "character_id", char.ID)
-
-	result := map[string]interface{}{
-		"success":      true,
-		"character_id": char.ID,
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	s.log().Info("character saved successfully", "campaign_id", input.CampaignID, "name", input.Name, "type", input.Type, "character_id", char.ID)
+	return nil, SaveCharacterOutput{Character: *char}, nil
 }
 
-func (s *Server) handleUpdateCharacter(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	name, err := req.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleUpdateCharacter(ctx context.Context, req *mcp.CallToolRequest, input UpdateCharacterInput) (*mcp.CallToolResult, UpdateCharacterOutput, error) {
+	if input.Notes != "" {
+		if err := validateMaxLength("notes", input.Notes, maxCharacterNotesLength); err != nil {
+			return nil, UpdateCharacterOutput{}, err
+		}
 	}
 
 	update := memory.CharacterUpdate{}
-	args := req.GetArguments()
 
-	// Check for optional fields
-	if hp, ok := args["hp_current"]; ok {
-		if hpFloat, ok := hp.(float64); ok {
-			hpInt := int(hpFloat)
-			update.HPCurrent = &hpInt
-		}
+	// Convert pointer fields from input to update struct
+	if input.HPCurrent != nil {
+		hpInt := int(*input.HPCurrent)
+		update.HPCurrent = &hpInt
 	}
-	if level, ok := args["level"]; ok {
-		if levelFloat, ok := level.(float64); ok {
-			levelInt := int(levelFloat)
-			update.Level = &levelInt
-		}
+	if input.Level != nil {
+		update.Level = input.Level
 	}
-	if gold, ok := args["gold"]; ok {
-		if goldFloat, ok := gold.(float64); ok {
-			goldInt := int(goldFloat)
-			update.Gold = &goldInt
-		}
+	if input.Gold != nil {
+		update.Gold = input.Gold
 	}
-	if status, ok := args["status"]; ok {
-		if statusStr, ok := status.(string); ok {
-			update.Status = &statusStr
-		}
+	if input.Status != "" {
+		update.Status = &input.Status
 	}
-	if notes, ok := args["notes"]; ok {
-		if notesStr, ok := notes.(string); ok {
-			if err := validateMaxLength("notes", notesStr, maxCharacterNotesLength); err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
+	if input.Notes != "" {
+		update.Notes = &input.Notes
+	}
+	if input.Inventory != nil {
+		update.Inventory = input.Inventory
+	}
+	if input.Conditions != nil {
+		update.Conditions = input.Conditions
+	}
+	if input.PlotFlags != nil {
+		update.PlotFlags = input.PlotFlags
+	}
+	if input.Relationships != nil {
+		// Convert map[string]interface{} to map[string]string
+		relationships := make(map[string]string, len(input.Relationships))
+		for k, v := range input.Relationships {
+			if vStr, ok := v.(string); ok {
+				relationships[k] = vStr
 			}
-			update.Notes = &notesStr
 		}
-	}
-	// Parse inventory array
-	if inv, ok := args["inventory"]; ok {
-		if invSlice, ok := inv.([]interface{}); ok {
-			inventory := make([]string, 0, len(invSlice))
-			for _, item := range invSlice {
-				if itemStr, ok := item.(string); ok {
-					inventory = append(inventory, itemStr)
-				}
-			}
-			update.Inventory = inventory
-		}
-	}
-	// Parse conditions array
-	if cond, ok := args["conditions"]; ok {
-		if condSlice, ok := cond.([]interface{}); ok {
-			conditions := make([]string, 0, len(condSlice))
-			for _, c := range condSlice {
-				if condStr, ok := c.(string); ok {
-					conditions = append(conditions, condStr)
-				}
-			}
-			update.Conditions = conditions
-		}
-	}
-	// Parse plot_flags array
-	if pf, ok := args["plot_flags"]; ok {
-		if pfSlice, ok := pf.([]interface{}); ok {
-			plotFlags := make([]string, 0, len(pfSlice))
-			for _, f := range pfSlice {
-				if flagStr, ok := f.(string); ok {
-					plotFlags = append(plotFlags, flagStr)
-				}
-			}
-			update.PlotFlags = plotFlags
-		}
-	}
-	// Parse relationships map
-	if rel, ok := args["relationships"]; ok {
-		if relMap, ok := rel.(map[string]interface{}); ok {
-			relationships := make(map[string]string, len(relMap))
-			for k, v := range relMap {
-				if vStr, ok := v.(string); ok {
-					relationships[k] = vStr
-				}
-			}
-			update.Relationships = relationships
-		}
+		update.Relationships = relationships
 	}
 
-	s.log().Debug("updating character", "campaign_id", campaignID, "name", name)
+	s.log().Debug("updating character", "campaign_id", input.CampaignID, "name", input.Name)
 
-	database, err := s.openCampaignDB(campaignID)
+	var character *types.Character
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		updatedFields, err := dbCtx.Store.UpdateCharacter(input.CampaignID, input.Name, update)
+		if err != nil {
+			return err
+		}
+		s.log().Info("character updated successfully", "campaign_id", input.CampaignID, "name", input.Name, "updated_fields", updatedFields)
+
+		// Fetch the updated character
+		character, err = dbCtx.Store.GetCharacter(input.CampaignID, input.Name)
+		return err
+	})
 	if err != nil {
-		s.log().Error("failed to open campaign database for update_character", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	updatedFields, err := store.UpdateCharacter(campaignID, name, update)
-	if err != nil {
-		s.log().Error("failed to update character", "campaign_id", campaignID, "name", name, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Error("failed to update character", "campaign_id", input.CampaignID, "name", input.Name, "error", err)
+		return nil, UpdateCharacterOutput{}, wrapError("update character", err)
 	}
 
-	s.log().Info("character updated successfully", "campaign_id", campaignID, "name", name, "updated_fields", updatedFields)
-
-	result := map[string]interface{}{
-		"success":        true,
-		"updated_fields": updatedFields,
+	if character == nil {
+		return nil, UpdateCharacterOutput{}, fmt.Errorf("character not found after update: %s", input.Name)
 	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+
+	return nil, UpdateCharacterOutput{Character: *character}, nil
 }
 
-func (s *Server) handleGetCharacter(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleGetCharacter(ctx context.Context, req *mcp.CallToolRequest, input GetCharacterInput) (*mcp.CallToolResult, GetCharacterOutput, error) {
+	var char *types.Character
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		char, err = dbCtx.Store.GetCharacter(input.CampaignID, input.Name)
+		return err
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	name, err := req.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	char, err := store.GetCharacter(campaignID, name)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, GetCharacterOutput{}, wrapError("get character", err)
 	}
 	if char == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("character not found: %s", name)), nil
+		return nil, GetCharacterOutput{}, fmt.Errorf("character not found: %s", input.Name)
 	}
 
-	jsonResult, _ := json.Marshal(char)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, GetCharacterOutput{Character: *char}, nil
 }
 
-func (s *Server) handleListCharacters(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleListCharacters(ctx context.Context, req *mcp.CallToolRequest, input ListCharactersInput) (*mcp.CallToolResult, ListCharactersOutput, error) {
+	var characters []types.CharacterSummary
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		characters, err = dbCtx.Store.ListCharacters(input.CampaignID, input.Type, input.Status)
+		return err
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	charType := req.GetString("type", "")
-	status := req.GetString("status", "")
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	characters, err := store.ListCharacters(campaignID, charType, status)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, ListCharactersOutput{}, wrapError("list characters", err)
 	}
 
-	jsonResult, _ := json.Marshal(characters)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, ListCharactersOutput{Characters: characters}, nil
 }
 
-func (s *Server) handleSavePlotEvent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	session, err := req.RequireFloat("session")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	summary, err := req.RequireString("summary")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	// Parse optional hooks array
-	var hooks []string
-	if hooksArg, ok := req.GetArguments()["hooks"]; ok {
-		if hooksSlice, ok := hooksArg.([]interface{}); ok {
-			for _, h := range hooksSlice {
-				if hookStr, ok := h.(string); ok {
-					hooks = append(hooks, hookStr)
-				}
-			}
-		}
-	}
-
+func (s *Server) handleSavePlotEvent(ctx context.Context, req *mcp.CallToolRequest, input SavePlotEventInput) (*mcp.CallToolResult, SavePlotEventOutput, error) {
 	event := &types.PlotEvent{
-		CampaignID:   campaignID,
-		Session:      int(session),
-		Summary:      summary,
-		Consequences: req.GetString("consequences", ""),
+		CampaignID:   input.CampaignID,
+		Session:      input.Session,
+		Summary:      input.Summary,
+		Consequences: input.Consequences,
 		NPCs:         []string{},
 		PCs:          []string{},
 		Tags:         []string{},
 	}
 
-	s.log().Debug("saving plot event", "campaign_id", campaignID, "session", int(session), "hooks_count", len(hooks))
+	hooks := input.Hooks
+	if hooks == nil {
+		hooks = []string{}
+	}
 
-	database, err := s.openCampaignDB(campaignID)
+	s.log().Debug("saving plot event", "campaign_id", input.CampaignID, "session", input.Session, "hooks_count", len(hooks))
+
+	var savedHooks []types.Hook
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		if err := dbCtx.Store.SavePlotEvent(event, hooks); err != nil {
+			return err
+		}
+		// Fetch the created hooks
+		var err error
+		savedHooks, err = dbCtx.Store.ListOpenHooks(input.CampaignID)
+		return err
+	})
 	if err != nil {
-		s.log().Error("failed to open campaign database for save_plot_event", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	if err := store.SavePlotEvent(event, hooks); err != nil {
-		s.log().Error("failed to save plot event", "campaign_id", campaignID, "session", int(session), "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Error("failed to save plot event", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+		return nil, SavePlotEventOutput{}, wrapError("save plot event", err)
 	}
 
-	s.log().Info("plot event saved successfully", "campaign_id", campaignID, "session", int(session), "event_id", event.ID, "hooks_opened", len(hooks))
-
-	result := map[string]interface{}{
-		"success":      true,
-		"event_id":     event.ID,
-		"hooks_opened": len(hooks),
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	s.log().Info("plot event saved successfully", "campaign_id", input.CampaignID, "session", input.Session, "event_id", event.ID, "hooks_opened", len(hooks))
+	return nil, SavePlotEventOutput{Event: *event, Hooks: savedHooks}, nil
 }
 
-func (s *Server) handleListOpenHooks(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleListOpenHooks(ctx context.Context, req *mcp.CallToolRequest, input ListOpenHooksInput) (*mcp.CallToolResult, ListOpenHooksOutput, error) {
+	var hooks []types.Hook
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		hooks, err = dbCtx.Store.ListOpenHooks(input.CampaignID)
+		return err
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, ListOpenHooksOutput{}, wrapError("list open hooks", err)
 	}
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	hooks, err := store.ListOpenHooks(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	jsonResult, _ := json.Marshal(hooks)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, ListOpenHooksOutput{Hooks: hooks}, nil
 }
 
-func (s *Server) handleResolveHook(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleResolveHook(ctx context.Context, req *mcp.CallToolRequest, input ResolveHookInput) (*mcp.CallToolResult, ResolveHookOutput, error) {
+	s.log().Debug("resolving hook", "campaign_id", input.CampaignID, "hook_id", input.HookID)
+
+	var hook *types.Hook
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		if err := dbCtx.Store.ResolveHook(input.CampaignID, input.HookID, input.Resolution); err != nil {
+			return err
+		}
+		// Fetch the resolved hook to return
+		hooks, err := dbCtx.Store.ListOpenHooks(input.CampaignID)
+		if err != nil {
+			return err
+		}
+		// Find the resolved hook (it's now in closed hooks, but we can construct it)
+		// For simplicity, just return a basic hook object
+		hook = &types.Hook{
+			ID:         input.HookID,
+			CampaignID: input.CampaignID,
+			Resolved:   true,
+			Resolution: input.Resolution,
+		}
+		_ = hooks // silence unused variable
+		return nil
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	hookID, err := req.RequireString("hook_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	resolution, err := req.RequireString("resolution")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Error("failed to resolve hook", "campaign_id", input.CampaignID, "hook_id", input.HookID, "error", err)
+		return nil, ResolveHookOutput{}, wrapError("resolve hook", err)
 	}
 
-	s.log().Debug("resolving hook", "campaign_id", campaignID, "hook_id", hookID)
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		s.log().Error("failed to open campaign database for resolve_hook", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	if err := store.ResolveHook(campaignID, hookID, resolution); err != nil {
-		s.log().Error("failed to resolve hook", "campaign_id", campaignID, "hook_id", hookID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	s.log().Info("hook resolved successfully", "campaign_id", campaignID, "hook_id", hookID)
-
-	result := map[string]interface{}{
-		"success": true,
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	s.log().Info("hook resolved successfully", "campaign_id", input.CampaignID, "hook_id", input.HookID)
+	return nil, ResolveHookOutput{Hook: *hook}, nil
 }
 
-func (s *Server) handleSetWorldFlag(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleSetWorldFlag(ctx context.Context, req *mcp.CallToolRequest, input SetWorldFlagInput) (*mcp.CallToolResult, SetWorldFlagOutput, error) {
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		return dbCtx.Store.SetWorldFlag(input.CampaignID, input.Key, input.Value)
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	key, err := req.RequireString("key")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	value, err := req.RequireString("value")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, SetWorldFlagOutput{}, wrapError("set world flag", err)
 	}
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	if err := store.SetWorldFlag(campaignID, key, value); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	result := map[string]interface{}{
-		"success": true,
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, SetWorldFlagOutput{Success: true}, nil
 }
 
-func (s *Server) handleGetWorldFlags(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
+func (s *Server) handleGetWorldFlags(ctx context.Context, req *mcp.CallToolRequest, input GetWorldFlagsInput) (*mcp.CallToolResult, GetWorldFlagsOutput, error) {
+	var flags map[string]string
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		flags, err = dbCtx.Store.GetWorldFlags(input.CampaignID)
+		return err
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, GetWorldFlagsOutput{}, wrapError("get world flags", err)
 	}
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	flags, err := store.GetWorldFlags(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	jsonResult, _ := json.Marshal(flags)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, GetWorldFlagsOutput{Flags: flags}, nil
 }

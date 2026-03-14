@@ -2,457 +2,351 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/andr1an/llmdm/internal/dm"
-	"github.com/andr1an/llmdm/internal/memory"
 	"github.com/andr1an/llmdm/internal/session"
 	"github.com/andr1an/llmdm/internal/types"
 )
 
-func (s *Server) handleStartSession(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	sessionNumberRaw, err := req.RequireFloat("session")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	sessionNumber := int(sessionNumberRaw)
-	recentSessions := int(req.GetFloat("recent_sessions", 3))
+func (s *Server) handleStartSession(ctx context.Context, req *mcp.CallToolRequest, input StartSessionInput) (*mcp.CallToolResult, StartSessionOutput, error) {
+	recentSessions := input.RecentSessions
 	if recentSessions <= 0 {
 		recentSessions = 3
 	}
 
-	s.log().Debug("starting session", "campaign_id", campaignID, "session", sessionNumber, "recent_sessions", recentSessions)
+	s.log().Debug("starting session", "campaign_id", input.CampaignID, "session", input.Session, "recent_sessions", recentSessions)
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		s.log().Error("failed to open campaign database for start_session", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	campaign, err := store.GetCampaign(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if campaign == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("campaign not found: %s", campaignID)), nil
-	}
-
-	activeCharacters, err := store.ListCharacters(campaignID, "pc", "active")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	openHooks, err := store.ListOpenHooks(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	worldFlags, err := store.GetWorldFlags(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	lastSession, err := store.GetLastSessionBefore(campaignID, sessionNumber)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	recent, err := store.ListRecentSessionsBefore(campaignID, sessionNumber, recentSessions)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	lastSessionNumber := 0
-	lastSessionSummary := ""
-	lastCheckpointText := "No checkpoint recorded."
-	if lastSession != nil {
-		lastSessionNumber = lastSession.Session
-		lastSessionSummary = lastSession.Summary
-		latestCheckpoint, cpErr := store.GetLatestCheckpoint(campaignID, lastSession.Session)
-		if cpErr != nil {
-			return mcp.NewToolResultError(cpErr.Error()), nil
+	var brief types.SessionBrief
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		campaign, err := dbCtx.Store.GetCampaign(input.CampaignID)
+		if err != nil {
+			return wrapError("get campaign", err)
 		}
-		if latestCheckpoint != nil {
-			lastCheckpointText = latestCheckpoint.Note
+		if campaign == nil {
+			return fmt.Errorf("campaign not found: %s", input.CampaignID)
 		}
-	}
 
-	briefText, err := session.RenderBrief(session.BriefData{
-		Session:         sessionNumber,
-		CampaignName:    campaign.Name,
-		Characters:      activeCharacters,
-		RecentSummaries: session.FormatRecentSummaries(recent),
-		OpenHooks:       openHooks,
-		WorldFlags:      worldFlags,
-		LastCheckpoint:  lastCheckpointText,
+		activeCharacters, err := dbCtx.Store.ListCharacters(input.CampaignID, "pc", "active")
+		if err != nil {
+			return wrapError("list active characters", err)
+		}
+		openHooks, err := dbCtx.Store.ListOpenHooks(input.CampaignID)
+		if err != nil {
+			return wrapError("list open hooks", err)
+		}
+		worldFlags, err := dbCtx.Store.GetWorldFlags(input.CampaignID)
+		if err != nil {
+			return wrapError("get world flags", err)
+		}
+
+		lastSession, err := dbCtx.Store.GetLastSessionBefore(input.CampaignID, input.Session)
+		if err != nil {
+			return wrapError("get last session", err)
+		}
+		recent, err := dbCtx.Store.ListRecentSessionsBefore(input.CampaignID, input.Session, recentSessions)
+		if err != nil {
+			return wrapError("list recent sessions", err)
+		}
+
+		lastSessionNumber := 0
+		lastSessionSummary := ""
+		lastCheckpointText := "No checkpoint recorded."
+		if lastSession != nil {
+			lastSessionNumber = lastSession.Session
+			lastSessionSummary = lastSession.Summary
+			latestCheckpoint, cpErr := dbCtx.Store.GetLatestCheckpoint(input.CampaignID, lastSession.Session)
+			if cpErr != nil {
+				return wrapError("get latest checkpoint", cpErr)
+			}
+			if latestCheckpoint != nil {
+				lastCheckpointText = latestCheckpoint.Note
+			}
+		}
+
+		briefText, err := session.RenderBrief(session.BriefData{
+			Session:         input.Session,
+			CampaignName:    campaign.Name,
+			Characters:      activeCharacters,
+			RecentSummaries: session.FormatRecentSummaries(recent),
+			OpenHooks:       openHooks,
+			WorldFlags:      worldFlags,
+			LastCheckpoint:  lastCheckpointText,
+		})
+		if err != nil {
+			return wrapError("render brief", err)
+		}
+
+		brief = types.SessionBrief{
+			SessionBrief:       briefText,
+			ActiveCharacters:   activeCharacters,
+			OpenHooks:          openHooks,
+			WorldFlags:         worldFlags,
+			LastSessionNumber:  lastSessionNumber,
+			LastSessionSummary: lastSessionSummary,
+			DMSystemPrompt:     dm.BuildSystemPrompt(briefText, openHooks, worldFlags),
+		}
+
+		s.log().Info("session started successfully",
+			"campaign_id", input.CampaignID,
+			"session", input.Session,
+			"active_characters", len(activeCharacters),
+			"open_hooks", len(openHooks),
+			"world_flags", len(worldFlags))
+
+		return nil
 	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, StartSessionOutput{}, err
 	}
 
-	result := types.SessionBrief{
-		SessionBrief:       briefText,
-		ActiveCharacters:   activeCharacters,
-		OpenHooks:          openHooks,
-		WorldFlags:         worldFlags,
-		LastSessionNumber:  lastSessionNumber,
-		LastSessionSummary: lastSessionSummary,
-		DMSystemPrompt:     dm.BuildSystemPrompt(briefText, openHooks, worldFlags),
-	}
-
-	s.log().Info("session started successfully",
-		"campaign_id", campaignID,
-		"session", sessionNumber,
-		"active_characters", len(activeCharacters),
-		"open_hooks", len(openHooks),
-		"world_flags", len(worldFlags))
-
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, StartSessionOutput{Brief: brief}, nil
 }
 
-func (s *Server) handleEndSession(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleEndSession(ctx context.Context, req *mcp.CallToolRequest, input EndSessionInput) (*mcp.CallToolResult, EndSessionOutput, error) {
+	if err := validateMaxLength("raw_events", input.RawEvents, maxSessionRawEventsLength); err != nil {
+		return nil, EndSessionOutput{}, wrapError("validate raw_events", err)
 	}
-	sessionNumberRaw, err := req.RequireFloat("session")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	if err := validateMaxLength("dm_notes", input.DMNotes, maxSessionDMNotesLength); err != nil {
+		return nil, EndSessionOutput{}, wrapError("validate dm_notes", err)
 	}
-	rawEvents, err := req.RequireString("raw_events")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if err := validateMaxLength("raw_events", rawEvents, maxSessionRawEventsLength); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	dmNotes := req.GetString("dm_notes", "")
-	if err := validateMaxLength("dm_notes", dmNotes, maxSessionDMNotesLength); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	sessionNumber := int(sessionNumberRaw)
 
-	s.log().Debug("ending session", "campaign_id", campaignID, "session", sessionNumber, "raw_events_length", len(rawEvents))
+	s.log().Debug("ending session", "campaign_id", input.CampaignID, "session", input.Session, "raw_events_length", len(input.RawEvents))
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		s.log().Error("failed to open campaign database for end_session", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
 	compressor := session.NewCompressor(s.cfg.AnthropicAPIKey)
-	compressedSummary, err := compressor.Compress(ctx, rawEvents)
+	compressedSummary, err := compressor.Compress(ctx, input.RawEvents)
 	if err != nil {
-		s.log().Error("session compression failed", "campaign_id", campaignID, "session", sessionNumber, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		s.log().Error("session compression failed", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+		return nil, EndSessionOutput{}, wrapError("compress session", err)
 	}
 
-	hooksOpened, err := store.CountHooksOpenedInSession(campaignID, sessionNumber)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	hooksResolved, err := store.CountHooksResolvedSincePreviousSession(campaignID, sessionNumber)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	if err := store.UpsertSession(&types.Session{
-		CampaignID:    campaignID,
-		Session:       sessionNumber,
-		Summary:       compressedSummary,
-		DMNotes:       dmNotes,
-		HooksOpened:   hooksOpened,
-		HooksResolved: hooksResolved,
-	}); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	if err := store.AdvanceCampaignSession(campaignID, sessionNumber+1); err != nil {
-		s.log().Error("failed to advance campaign session", "campaign_id", campaignID, "session", sessionNumber, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	s.log().Info("session ended successfully",
-		"campaign_id", campaignID,
-		"session", sessionNumber,
-		"summary_length", len(compressedSummary),
-		"hooks_opened", hooksOpened,
-		"hooks_resolved", hooksResolved)
-
-	result := map[string]interface{}{
-		"success":            true,
-		"compressed_summary": compressedSummary,
-		"hooks_opened":       hooksOpened,
-		"hooks_resolved":     hooksResolved,
-		"characters_updated": []string{},
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
-}
-
-func (s *Server) handleCheckpoint(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	sessionNumberRaw, err := req.RequireFloat("session")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	note, err := req.RequireString("note")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if err := validateMaxLength("note", note, maxCheckpointNoteLength); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	// Get optional data parameter
-	args := req.GetArguments()
-	var data map[string]interface{}
-	if dataRaw, ok := args["data"]; ok {
-		if dataMap, ok := dataRaw.(map[string]interface{}); ok {
-			data = dataMap
+	err = s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		hooksOpened, err := dbCtx.Store.CountHooksOpenedInSession(input.CampaignID, input.Session)
+		if err != nil {
+			return wrapError("count hooks opened", err)
 		}
-	}
+		hooksResolved, err := dbCtx.Store.CountHooksResolvedSincePreviousSession(input.CampaignID, input.Session)
+		if err != nil {
+			return wrapError("count hooks resolved", err)
+		}
 
-	s.log().Debug("creating checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "note_length", len(note), "has_data", len(data) > 0)
+		if err := dbCtx.Store.UpsertSession(&types.Session{
+			CampaignID:    input.CampaignID,
+			Session:       input.Session,
+			Summary:       compressedSummary,
+			DMNotes:       input.DMNotes,
+			HooksOpened:   hooksOpened,
+			HooksResolved: hooksResolved,
+		}); err != nil {
+			return wrapError("upsert session", err)
+		}
 
-	database, err := s.openCampaignDB(campaignID)
+		if err := dbCtx.Store.AdvanceCampaignSession(input.CampaignID, input.Session+1); err != nil {
+			s.log().Error("failed to advance campaign session", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+			return wrapError("advance campaign session", err)
+		}
+
+		s.log().Info("session ended successfully",
+			"campaign_id", input.CampaignID,
+			"session", input.Session,
+			"summary_length", len(compressedSummary),
+			"hooks_opened", hooksOpened,
+			"hooks_resolved", hooksResolved)
+
+		return nil
+	})
 	if err != nil {
-		s.log().Error("failed to open campaign database for checkpoint", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	checkpoint, err := store.CreateCheckpoint(campaignID, int(sessionNumberRaw), note, data)
-	if err != nil {
-		s.log().Error("failed to create checkpoint", "campaign_id", campaignID, "session", int(sessionNumberRaw), "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, EndSessionOutput{}, err
 	}
 
-	s.log().Info("checkpoint created", "campaign_id", campaignID, "session", int(sessionNumberRaw), "checkpoint_id", checkpoint.ID)
-
-	result := map[string]interface{}{
-		"success":       true,
-		"checkpoint_id": checkpoint.ID,
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	return nil, EndSessionOutput{Summary: compressedSummary}, nil
 }
 
-func (s *Server) handleGetTurnHistory(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+func (s *Server) handleCheckpoint(ctx context.Context, req *mcp.CallToolRequest, input CheckpointInput) (*mcp.CallToolResult, CheckpointOutput, error) {
+	if err := validateMaxLength("note", input.Note, maxCheckpointNoteLength); err != nil {
+		return nil, CheckpointOutput{}, wrapError("validate note", err)
 	}
-	sessionNumberRaw, err := req.RequireFloat("session")
+
+	s.log().Debug("creating checkpoint", "campaign_id", input.CampaignID, "session", input.Session, "note_length", len(input.Note), "has_data", len(input.Data) > 0)
+
+	var checkpointID string
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		checkpoint, err := dbCtx.Store.CreateCheckpoint(input.CampaignID, input.Session, input.Note, input.Data)
+		if err != nil {
+			s.log().Error("failed to create checkpoint", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+			return wrapError("create checkpoint", err)
+		}
+
+		s.log().Info("checkpoint created", "campaign_id", input.CampaignID, "session", input.Session, "checkpoint_id", checkpoint.ID)
+		checkpointID = checkpoint.ID
+		return nil
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, CheckpointOutput{}, err
 	}
-	limit := int(req.GetFloat("limit", 50))
+
+	return nil, CheckpointOutput{CheckpointID: checkpointID}, nil
+}
+
+func (s *Server) handleGetTurnHistory(ctx context.Context, req *mcp.CallToolRequest, input GetTurnHistoryInput) (*mcp.CallToolResult, GetTurnHistoryOutput, error) {
+	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 
-	s.log().Debug("getting turn history", "campaign_id", campaignID, "session", int(sessionNumberRaw), "limit", limit)
+	s.log().Debug("getting turn history", "campaign_id", input.CampaignID, "session", input.Session, "limit", limit)
 
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		s.log().Error("failed to open campaign database for get_turn_history", "campaign_id", campaignID, "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	checkpoints, err := store.ListCheckpoints(campaignID, int(sessionNumberRaw), limit)
-	if err != nil {
-		s.log().Error("failed to list checkpoints", "campaign_id", campaignID, "session", int(sessionNumberRaw), "error", err)
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	// Extract turn data from checkpoints
-	turns := make([]map[string]interface{}, 0, len(checkpoints))
-	for _, cp := range checkpoints {
-		if len(cp.Data) > 0 {
-			turns = append(turns, cp.Data)
+	var turns []types.Checkpoint
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		checkpoints, err := dbCtx.Store.ListCheckpoints(input.CampaignID, input.Session, limit)
+		if err != nil {
+			s.log().Error("failed to list checkpoints", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+			return wrapError("list checkpoints", err)
 		}
-	}
 
-	s.log().Info("turn history retrieved", "campaign_id", campaignID, "session", int(sessionNumberRaw), "turns", len(turns))
+		// Filter checkpoints that have turn data
+		for _, cp := range checkpoints {
+			if len(cp.Data) > 0 {
+				turns = append(turns, cp)
+			}
+		}
 
-	result := map[string]interface{}{
-		"campaign_id": campaignID,
-		"session":     int(sessionNumberRaw),
-		"turns":       turns,
-		"count":       len(turns),
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
-}
-
-func (s *Server) handleGetSessionBrief(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	campaign, err := store.GetCampaign(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if campaign == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("campaign not found: %s", campaignID)), nil
-	}
-
-	latestSession, err := store.GetLatestSession(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	activeCharacters, err := store.ListCharacters(campaignID, "pc", "active")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	openHooks, err := store.ListOpenHooks(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	worldFlags, err := store.GetWorldFlags(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	result := map[string]string{
-		"brief": session.RenderQuickBrief(campaign.Name, latestSession, activeCharacters, openHooks, worldFlags),
-	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
-}
-
-func (s *Server) handleListSessions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	sessions, err := store.ListSessions(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	jsonResult, _ := json.Marshal(sessions)
-	return mcp.NewToolResultText(string(jsonResult)), nil
-}
-
-func (s *Server) handleGetNPCRelationships(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	npcName := req.GetString("npc_name", "")
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	edges, err := store.QueryNPCRelationships(campaignID, npcName)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	jsonResult, _ := json.Marshal(map[string]interface{}{
-		"campaign_id": campaignID,
-		"npc_name":    npcName,
-		"count":       len(edges),
-		"edges":       edges,
+		s.log().Info("turn history retrieved", "campaign_id", input.CampaignID, "session", input.Session, "turns", len(turns))
+		return nil
 	})
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	if err != nil {
+		return nil, GetTurnHistoryOutput{}, err
+	}
+
+	return nil, GetTurnHistoryOutput{Turns: turns}, nil
 }
 
-func (s *Server) handleExportSessionRecap(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	campaignID, err := req.RequireString("campaign_id")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	fromSession := int(req.GetFloat("from_session", 0))
-	toSession := int(req.GetFloat("to_session", 0))
-
-	database, err := s.openCampaignDB(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	defer database.Close()
-
-	store := memory.NewStore(database.DB)
-	campaign, err := store.GetCampaign(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if campaign == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("campaign not found: %s", campaignID)), nil
-	}
-
-	sessions, err := store.ListSessions(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	filtered := make([]types.SessionMeta, 0, len(sessions))
-	for _, s := range sessions {
-		if fromSession > 0 && s.Session < fromSession {
-			continue
+func (s *Server) handleGetSessionBrief(ctx context.Context, req *mcp.CallToolRequest, input GetSessionBriefInput) (*mcp.CallToolResult, GetSessionBriefOutput, error) {
+	var brief string
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		campaign, err := dbCtx.Store.GetCampaign(input.CampaignID)
+		if err != nil {
+			return wrapError("get campaign", err)
 		}
-		if toSession > 0 && s.Session > toSession {
-			continue
+		if campaign == nil {
+			return fmt.Errorf("campaign not found: %s", input.CampaignID)
 		}
-		filtered = append(filtered, s)
-	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Session < filtered[j].Session })
 
-	hooks, err := store.ListOpenHooks(campaignID)
+		latestSession, err := dbCtx.Store.GetLatestSession(input.CampaignID)
+		if err != nil {
+			return wrapError("get latest session", err)
+		}
+		activeCharacters, err := dbCtx.Store.ListCharacters(input.CampaignID, "pc", "active")
+		if err != nil {
+			return wrapError("list active characters", err)
+		}
+		openHooks, err := dbCtx.Store.ListOpenHooks(input.CampaignID)
+		if err != nil {
+			return wrapError("list open hooks", err)
+		}
+		worldFlags, err := dbCtx.Store.GetWorldFlags(input.CampaignID)
+		if err != nil {
+			return wrapError("get world flags", err)
+		}
+
+		brief = session.RenderQuickBrief(campaign.Name, latestSession, activeCharacters, openHooks, worldFlags)
+		return nil
+	})
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	flags, err := store.GetWorldFlags(campaignID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return nil, GetSessionBriefOutput{}, err
 	}
 
-	markdown := session.RenderRecap(campaign.Name, filtered, hooks, flags)
-	result := map[string]interface{}{
-		"campaign_id":   campaignID,
-		"from_session":  fromSession,
-		"to_session":    toSession,
-		"session_count": len(filtered),
-		"markdown":      markdown,
+	return nil, GetSessionBriefOutput{Brief: brief}, nil
+}
+
+func (s *Server) handleListSessions(ctx context.Context, req *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
+	var sessions []types.SessionMeta
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		sessions, err = dbCtx.Store.ListSessions(input.CampaignID)
+		if err != nil {
+			return wrapError("list sessions", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, ListSessionsOutput{}, err
 	}
-	jsonResult, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(jsonResult)), nil
+
+	return nil, ListSessionsOutput{Sessions: sessions}, nil
+}
+
+func (s *Server) handleGetNPCRelationships(ctx context.Context, req *mcp.CallToolRequest, input GetNPCRelationshipsInput) (*mcp.CallToolResult, GetNPCRelationshipsOutput, error) {
+	var edges []types.RelationshipEdge
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		var err error
+		edges, err = dbCtx.Store.QueryNPCRelationships(input.CampaignID, input.NPCName)
+		if err != nil {
+			return wrapError("query npc relationships", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, GetNPCRelationshipsOutput{}, err
+	}
+
+	return nil, GetNPCRelationshipsOutput{Relationships: edges}, nil
+}
+
+func (s *Server) handleExportSessionRecap(ctx context.Context, req *mcp.CallToolRequest, input ExportSessionRecapInput) (*mcp.CallToolResult, ExportSessionRecapOutput, error) {
+	fromSession := 0
+	if input.FromSession != nil {
+		fromSession = int(*input.FromSession)
+	}
+	toSession := 0
+	if input.ToSession != nil {
+		toSession = int(*input.ToSession)
+	}
+
+	var markdown string
+	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
+		campaign, err := dbCtx.Store.GetCampaign(input.CampaignID)
+		if err != nil {
+			return wrapError("get campaign", err)
+		}
+		if campaign == nil {
+			return fmt.Errorf("campaign not found: %s", input.CampaignID)
+		}
+
+		sessions, err := dbCtx.Store.ListSessions(input.CampaignID)
+		if err != nil {
+			return wrapError("list sessions", err)
+		}
+		filtered := make([]types.SessionMeta, 0, len(sessions))
+		for _, s := range sessions {
+			if fromSession > 0 && s.Session < fromSession {
+				continue
+			}
+			if toSession > 0 && s.Session > toSession {
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		sort.Slice(filtered, func(i, j int) bool { return filtered[i].Session < filtered[j].Session })
+
+		hooks, err := dbCtx.Store.ListOpenHooks(input.CampaignID)
+		if err != nil {
+			return wrapError("list open hooks", err)
+		}
+		flags, err := dbCtx.Store.GetWorldFlags(input.CampaignID)
+		if err != nil {
+			return wrapError("get world flags", err)
+		}
+
+		markdown = session.RenderRecap(campaign.Name, filtered, hooks, flags)
+		return nil
+	})
+	if err != nil {
+		return nil, ExportSessionRecapOutput{}, err
+	}
+
+	return nil, ExportSessionRecapOutput{Markdown: markdown}, nil
 }
