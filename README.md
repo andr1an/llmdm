@@ -273,6 +273,170 @@ This keeps workflows resilient in offline or degraded network/API conditions.
 - Migrations are embedded and run automatically when opening campaign DBs.
 - Test suite uses race detector by default via `make test`.
 
+## Playing D&D Campaigns
+
+The `game/` directory contains a ready-to-play workspace for running D&D campaigns with Claude Code and this MCP server.
+
+### What's Included
+
+- **`.mcp.json`**: Pre-configured MCP server connection (stdio transport)
+- **`CLAUDE.md`**: Comprehensive DM instructions teaching Claude how to run D&D 5e sessions
+- **Skills** (slash commands):
+  - `/create-campaign` - Start a new campaign with character creation
+  - `/continue` - Resume an existing campaign
+  - `/end` - Properly end a session with AI compression
+
+### Setup
+
+1. Build the server binary:
+   ```bash
+   make build
+   ```
+
+2. Copy the binary to the game directory:
+   ```bash
+   cp bin/dnd-mcp game/dnd-mcp
+   ```
+
+3. (Optional) Set up your Anthropic API key for AI session compression:
+   ```bash
+   cd game
+   echo "ANTHROPIC_API_KEY=your-key-here" > .env
+   ```
+
+### How to Play
+
+1. Navigate to the game directory:
+   ```bash
+   cd game
+   ```
+
+2. Start Claude Code:
+   ```bash
+   claude-code
+   ```
+
+3. Start a new campaign:
+   ```
+   /create-campaign
+   ```
+
+   Or continue an existing campaign:
+   ```
+   /continue
+   ```
+
+4. Play! Claude will act as your Dungeon Master:
+   - All dice rolls use the MCP server (no simulation)
+   - Character sheets are persisted in SQLite
+   - Session history is AI-compressed for continuity
+   - Plot hooks and world state are tracked automatically
+
+5. End your session when done:
+   ```
+   /end
+   ```
+
+### Campaign Data Location
+
+Campaign databases are stored in `./data/campaigns/` by default. Each campaign gets its own SQLite file named `<campaign_id>.db`.
+
+### Model Recommendations
+
+**For Regular Play (Recommended):**
+- **Sonnet 4.5**: Best balance of creativity, speed, and cost for most D&D sessions
+- Excellent at storytelling, NPCs, and combat narration
+- Fast enough for real-time gameplay
+
+**For Special Sessions:**
+- **Opus 4.5**: Use for major story moments, complex social encounters, or important boss fights
+- More creative and nuanced storytelling
+- Better at handling intricate plots and character development
+- Slower and more expensive - reserve for key sessions
+
+**For Quick Queries:**
+- **Haiku**: Use for simple tasks like checking character sheets or listing campaigns
+- Not recommended for actual gameplay - lacks storytelling depth
+
+### Context Window Management
+
+Since all campaign state persists in SQLite, you can safely start fresh Claude Code sessions without losing progress. The MCP server maintains continuity across sessions.
+
+**When to Start a New Claude Code Session:**
+
+1. **After 2-3 D&D Sessions**: Long gameplay fills the context window quickly
+   - Each D&D session generates 50k-150k tokens of conversation
+   - Starting fresh keeps Claude responsive
+
+2. **When Performance Degrades**: If responses become slow or repetitive
+   - Large context windows slow down generation
+   - Fresh sessions restore full speed
+
+3. **At Natural Break Points**:
+   - End of a quest arc or story chapter
+   - After a long rest or downtime
+   - Between major campaign milestones
+   - When leveling up characters
+
+4. **When Context Exceeds ~150k Tokens**: Check token usage periodically
+   - Use `/tokens` or similar commands in Claude Code
+   - High token counts indicate it's time to refresh
+
+**How to Resume After Starting Fresh:**
+
+```bash
+# Exit current Claude Code session
+exit
+
+# Start new session
+claude-code
+
+# Resume your campaign
+/continue
+```
+
+The `/continue` skill will:
+- Load AI-compressed summaries of recent sessions
+- Restore all character sheets with current HP/status
+- Show all open plot hooks
+- Retrieve world state flags
+- Provide full DM context
+
+**Important**: Campaign data never needs cleaning - only the Claude Code session context. Your campaign history, characters, and plot are permanently stored in SQLite.
+
+### Features
+
+- **Full D&D 5e Support**: Ability scores, skills, proficiencies, spellcasting, features
+- **Persistent Memory**: Characters, NPCs, plot events, world flags all saved
+- **Session Continuity**: AI-compressed session summaries maintain context across sessions
+- **Fair Dice Rolling**: All rolls use real random number generation via MCP tools
+- **Plot Tracking**: Automatic hook creation and resolution tracking
+- **Checkpoints**: Turn-by-turn session reconstruction capability
+
+### Example Workflow
+
+**Starting a New Campaign:**
+```
+You: /create-campaign
+Claude: Great! Let's create a new campaign. What would you like to call it?
+You: Lost Mines of Phandelver
+Claude: [Creates campaign] Now let's create your character...
+```
+
+**Playing:**
+```
+Claude: You enter a dark cave. What do you do?
+You: I look around for traps
+Claude: [Uses roll tool] Rolling Perception: 1d20+3... You rolled 17! You notice...
+```
+
+**Ending Session:**
+```
+You: /end
+Claude: [Saves NPCs, plot events, resolves hooks, compresses session]
+       Session 3 saved! See you next time!
+```
+
 ## Troubleshooting
 
 - `invalid MCP_TRANSPORT ...`: set to one of `stdio`, `http`, `streamable-http`.

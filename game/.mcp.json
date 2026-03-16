@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "dnd-campaign": {
+      "type": "stdio",
+      "command": "./dnd-mcp",
+      "args": [
+        "serve"
+      ],
+      "env": {}
+    }
+  }
+}
