@@ -20,7 +20,7 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req *mcp.CallToolRequ
 	}
 
 	campaignID := generateCampaignID(input.Name)
-	s.log().Debug("creating campaign", "campaign_id", campaignID, "name", input.Name)
+	s.logToolEntry("create_campaign", "", "name", input.Name)
 
 	var campaign *types.Campaign
 	var dbPath string
@@ -34,13 +34,13 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req *mcp.CallToolRequ
 		return nil
 	})
 	if err != nil {
-		s.log().Error("failed to create campaign", "campaign_id", campaignID, "error", err)
+		s.logToolError("create_campaign", campaignID, err)
 		return nil, CreateCampaignOutput{}, wrapError("create campaign", err)
 	}
 
 	// Get db path by reconstructing it
 	dbPath, _ = db.CampaignDBPath(s.dbPath, campaignID)
-	s.log().Info("campaign created successfully", "campaign_id", campaignID, "name", input.Name, "db_path", dbPath)
+	s.logToolExit("create_campaign", campaignID, "name", input.Name)
 
 	return nil, CreateCampaignOutput{
 		CampaignID: campaignID,
@@ -50,15 +50,15 @@ func (s *Server) handleCreateCampaign(ctx context.Context, req *mcp.CallToolRequ
 }
 
 func (s *Server) handleListCampaigns(ctx context.Context, req *mcp.CallToolRequest, input ListCampaignsInput) (*mcp.CallToolResult, ListCampaignsOutput, error) {
-	s.log().Debug("listing campaigns", "db_path", s.DBPath())
+	s.logToolEntry("list_campaigns", "")
 
 	entries, err := os.ReadDir(s.DBPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.log().Debug("campaigns directory does not exist, returning empty list")
+			s.logToolExit("list_campaigns", "", "count", 0)
 			return nil, ListCampaignsOutput{Campaigns: []types.Campaign{}}, nil
 		}
-		s.log().Error("failed to read campaigns directory", "db_path", s.DBPath(), "error", err)
+		s.logToolError("list_campaigns", "", err)
 		return nil, ListCampaignsOutput{}, wrapError("read campaigns directory", err)
 	}
 
@@ -78,7 +78,6 @@ func (s *Server) handleListCampaigns(ctx context.Context, req *mcp.CallToolReque
 		dbPath := filepath.Join(s.DBPath(), entry.Name())
 		database, err := db.Open(dbPath)
 		if err != nil {
-			s.log().Warn("failed to open campaign database during list", "campaign_id", campaignID, "error", err)
 			skipped++
 			continue
 		}
@@ -88,7 +87,6 @@ func (s *Server) handleListCampaigns(ctx context.Context, req *mcp.CallToolReque
 		database.Close()
 
 		if err != nil || campaign == nil {
-			s.log().Warn("failed to load campaign metadata during list", "campaign_id", campaignID, "error", err)
 			skipped++
 			continue
 		}
@@ -100,7 +98,7 @@ func (s *Server) handleListCampaigns(ctx context.Context, req *mcp.CallToolReque
 		campaigns = []types.Campaign{}
 	}
 
-	s.log().Info("campaigns listed", "count", len(campaigns), "skipped", skipped)
+	s.logToolExit("list_campaigns", "", "count", len(campaigns))
 	return nil, ListCampaignsOutput{Campaigns: campaigns}, nil
 }
 
@@ -207,17 +205,17 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolReque
 		Relationships:    map[string]string{},
 	}
 
-	s.log().Debug("saving character", "campaign_id", input.CampaignID, "name", input.Name, "type", input.Type, "class", char.Class)
+	s.logToolEntry("save_character", input.CampaignID, "name", input.Name, "type", input.Type)
 
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		return dbCtx.Store.SaveCharacter(char)
 	})
 	if err != nil {
-		s.log().Error("failed to save character", "campaign_id", input.CampaignID, "name", input.Name, "error", err)
+		s.logToolError("save_character", input.CampaignID, err, "name", input.Name)
 		return nil, SaveCharacterOutput{}, wrapError("save character", err)
 	}
 
-	s.log().Info("character saved successfully", "campaign_id", input.CampaignID, "name", input.Name, "type", input.Type, "character_id", char.ID)
+	s.logToolExit("save_character", input.CampaignID, "name", input.Name, "type", input.Type)
 	return nil, SaveCharacterOutput{Character: *char}, nil
 }
 
@@ -309,22 +307,21 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req *mcp.CallToolReq
 		update.Spellcasting = input.Spellcasting
 	}
 
-	s.log().Debug("updating character", "campaign_id", input.CampaignID, "name", input.Name)
+	s.logToolEntry("update_character", input.CampaignID, "name", input.Name)
 
 	var character *types.Character
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
-		updatedFields, err := dbCtx.Store.UpdateCharacter(input.CampaignID, input.Name, update)
+		_, err := dbCtx.Store.UpdateCharacter(input.CampaignID, input.Name, update)
 		if err != nil {
 			return err
 		}
-		s.log().Info("character updated successfully", "campaign_id", input.CampaignID, "name", input.Name, "updated_fields", updatedFields)
 
 		// Fetch the updated character
 		character, err = dbCtx.Store.GetCharacter(input.CampaignID, input.Name)
 		return err
 	})
 	if err != nil {
-		s.log().Error("failed to update character", "campaign_id", input.CampaignID, "name", input.Name, "error", err)
+		s.logToolError("update_character", input.CampaignID, err, "name", input.Name)
 		return nil, UpdateCharacterOutput{}, wrapError("update character", err)
 	}
 
@@ -332,10 +329,13 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req *mcp.CallToolReq
 		return nil, UpdateCharacterOutput{}, fmt.Errorf("character not found after update: %s", input.Name)
 	}
 
+	s.logToolExit("update_character", input.CampaignID, "name", input.Name)
 	return nil, UpdateCharacterOutput{Character: *character}, nil
 }
 
 func (s *Server) handleGetCharacter(ctx context.Context, req *mcp.CallToolRequest, input GetCharacterInput) (*mcp.CallToolResult, GetCharacterOutput, error) {
+	s.logToolEntry("get_character", input.CampaignID, "name", input.Name)
+
 	var char *types.Character
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -343,16 +343,20 @@ func (s *Server) handleGetCharacter(ctx context.Context, req *mcp.CallToolReques
 		return err
 	})
 	if err != nil {
+		s.logToolError("get_character", input.CampaignID, err, "name", input.Name)
 		return nil, GetCharacterOutput{}, wrapError("get character", err)
 	}
 	if char == nil {
 		return nil, GetCharacterOutput{}, fmt.Errorf("character not found: %s", input.Name)
 	}
 
+	s.logToolExit("get_character", input.CampaignID, "name", input.Name)
 	return nil, GetCharacterOutput{Character: *char}, nil
 }
 
 func (s *Server) handleListCharacters(ctx context.Context, req *mcp.CallToolRequest, input ListCharactersInput) (*mcp.CallToolResult, ListCharactersOutput, error) {
+	s.logToolEntry("list_characters", input.CampaignID, "type", input.Type, "status", input.Status)
+
 	var characters []types.CharacterSummary
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -360,9 +364,11 @@ func (s *Server) handleListCharacters(ctx context.Context, req *mcp.CallToolRequ
 		return err
 	})
 	if err != nil {
+		s.logToolError("list_characters", input.CampaignID, err)
 		return nil, ListCharactersOutput{}, wrapError("list characters", err)
 	}
 
+	s.logToolExit("list_characters", input.CampaignID, "count", len(characters))
 	return nil, ListCharactersOutput{Characters: characters}, nil
 }
 
@@ -382,7 +388,7 @@ func (s *Server) handleSavePlotEvent(ctx context.Context, req *mcp.CallToolReque
 		hooks = []string{}
 	}
 
-	s.log().Debug("saving plot event", "campaign_id", input.CampaignID, "session", input.Session, "hooks_count", len(hooks))
+	s.logToolEntry("save_plot_event", input.CampaignID, "session", input.Session, "hooks", len(hooks))
 
 	var savedHooks []types.Hook
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
@@ -395,15 +401,17 @@ func (s *Server) handleSavePlotEvent(ctx context.Context, req *mcp.CallToolReque
 		return err
 	})
 	if err != nil {
-		s.log().Error("failed to save plot event", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+		s.logToolError("save_plot_event", input.CampaignID, err, "session", input.Session)
 		return nil, SavePlotEventOutput{}, wrapError("save plot event", err)
 	}
 
-	s.log().Info("plot event saved successfully", "campaign_id", input.CampaignID, "session", input.Session, "event_id", event.ID, "hooks_opened", len(hooks))
+	s.logToolExit("save_plot_event", input.CampaignID, "session", input.Session, "hooks_opened", len(hooks))
 	return nil, SavePlotEventOutput{Event: *event, Hooks: savedHooks}, nil
 }
 
 func (s *Server) handleListOpenHooks(ctx context.Context, req *mcp.CallToolRequest, input ListOpenHooksInput) (*mcp.CallToolResult, ListOpenHooksOutput, error) {
+	s.logToolEntry("list_open_hooks", input.CampaignID)
+
 	var hooks []types.Hook
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -411,14 +419,16 @@ func (s *Server) handleListOpenHooks(ctx context.Context, req *mcp.CallToolReque
 		return err
 	})
 	if err != nil {
+		s.logToolError("list_open_hooks", input.CampaignID, err)
 		return nil, ListOpenHooksOutput{}, wrapError("list open hooks", err)
 	}
 
+	s.logToolExit("list_open_hooks", input.CampaignID, "count", len(hooks))
 	return nil, ListOpenHooksOutput{Hooks: hooks}, nil
 }
 
 func (s *Server) handleResolveHook(ctx context.Context, req *mcp.CallToolRequest, input ResolveHookInput) (*mcp.CallToolResult, ResolveHookOutput, error) {
-	s.log().Debug("resolving hook", "campaign_id", input.CampaignID, "hook_id", input.HookID)
+	s.logToolEntry("resolve_hook", input.CampaignID, "hook_id", input.HookID)
 
 	var hook *types.Hook
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
@@ -442,26 +452,32 @@ func (s *Server) handleResolveHook(ctx context.Context, req *mcp.CallToolRequest
 		return nil
 	})
 	if err != nil {
-		s.log().Error("failed to resolve hook", "campaign_id", input.CampaignID, "hook_id", input.HookID, "error", err)
+		s.logToolError("resolve_hook", input.CampaignID, err, "hook_id", input.HookID)
 		return nil, ResolveHookOutput{}, wrapError("resolve hook", err)
 	}
 
-	s.log().Info("hook resolved successfully", "campaign_id", input.CampaignID, "hook_id", input.HookID)
+	s.logToolExit("resolve_hook", input.CampaignID, "hook_id", input.HookID)
 	return nil, ResolveHookOutput{Hook: *hook}, nil
 }
 
 func (s *Server) handleSetWorldFlag(ctx context.Context, req *mcp.CallToolRequest, input SetWorldFlagInput) (*mcp.CallToolResult, SetWorldFlagOutput, error) {
+	s.logToolEntry("set_world_flag", input.CampaignID, "key", input.Key)
+
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		return dbCtx.Store.SetWorldFlag(input.CampaignID, input.Key, input.Value)
 	})
 	if err != nil {
+		s.logToolError("set_world_flag", input.CampaignID, err, "key", input.Key)
 		return nil, SetWorldFlagOutput{}, wrapError("set world flag", err)
 	}
 
+	s.logToolExit("set_world_flag", input.CampaignID, "key", input.Key)
 	return nil, SetWorldFlagOutput{Success: true}, nil
 }
 
 func (s *Server) handleGetWorldFlags(ctx context.Context, req *mcp.CallToolRequest, input GetWorldFlagsInput) (*mcp.CallToolResult, GetWorldFlagsOutput, error) {
+	s.logToolEntry("get_world_flags", input.CampaignID)
+
 	var flags map[string]string
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -469,8 +485,10 @@ func (s *Server) handleGetWorldFlags(ctx context.Context, req *mcp.CallToolReque
 		return err
 	})
 	if err != nil {
+		s.logToolError("get_world_flags", input.CampaignID, err)
 		return nil, GetWorldFlagsOutput{}, wrapError("get world flags", err)
 	}
 
+	s.logToolExit("get_world_flags", input.CampaignID, "count", len(flags))
 	return nil, GetWorldFlagsOutput{Flags: flags}, nil
 }

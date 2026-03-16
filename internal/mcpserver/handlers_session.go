@@ -18,7 +18,7 @@ func (s *Server) handleStartSession(ctx context.Context, req *mcp.CallToolReques
 		recentSessions = 3
 	}
 
-	s.log().Debug("starting session", "campaign_id", input.CampaignID, "session", input.Session, "recent_sessions", recentSessions)
+	s.logToolEntry("start_session", input.CampaignID, "session", input.Session)
 
 	var brief types.SessionBrief
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
@@ -90,19 +90,14 @@ func (s *Server) handleStartSession(ctx context.Context, req *mcp.CallToolReques
 			DMSystemPrompt:     dm.BuildSystemPrompt(briefText, openHooks, worldFlags),
 		}
 
-		s.log().Info("session started successfully",
-			"campaign_id", input.CampaignID,
-			"session", input.Session,
-			"active_characters", len(activeCharacters),
-			"open_hooks", len(openHooks),
-			"world_flags", len(worldFlags))
-
 		return nil
 	})
 	if err != nil {
+		s.logToolError("start_session", input.CampaignID, err, "session", input.Session)
 		return nil, StartSessionOutput{}, err
 	}
 
+	s.logToolExit("start_session", input.CampaignID, "session", input.Session, "active_characters", len(brief.ActiveCharacters), "open_hooks", len(brief.OpenHooks))
 	return nil, StartSessionOutput{Brief: brief}, nil
 }
 
@@ -114,12 +109,12 @@ func (s *Server) handleEndSession(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, EndSessionOutput{}, wrapError("validate dm_notes", err)
 	}
 
-	s.log().Debug("ending session", "campaign_id", input.CampaignID, "session", input.Session, "raw_events_length", len(input.RawEvents))
+	s.logToolEntry("end_session", input.CampaignID, "session", input.Session)
 
 	compressor := session.NewCompressor(s.cfg.AnthropicAPIKey)
 	compressedSummary, err := compressor.Compress(ctx, input.RawEvents)
 	if err != nil {
-		s.log().Error("session compression failed", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
+		s.logToolError("end_session", input.CampaignID, err, "session", input.Session)
 		return nil, EndSessionOutput{}, wrapError("compress session", err)
 	}
 
@@ -145,23 +140,17 @@ func (s *Server) handleEndSession(ctx context.Context, req *mcp.CallToolRequest,
 		}
 
 		if err := dbCtx.Store.AdvanceCampaignSession(input.CampaignID, input.Session+1); err != nil {
-			s.log().Error("failed to advance campaign session", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
 			return wrapError("advance campaign session", err)
 		}
-
-		s.log().Info("session ended successfully",
-			"campaign_id", input.CampaignID,
-			"session", input.Session,
-			"summary_length", len(compressedSummary),
-			"hooks_opened", hooksOpened,
-			"hooks_resolved", hooksResolved)
 
 		return nil
 	})
 	if err != nil {
+		s.logToolError("end_session", input.CampaignID, err, "session", input.Session)
 		return nil, EndSessionOutput{}, err
 	}
 
+	s.logToolExit("end_session", input.CampaignID, "session", input.Session, "summary_length", len(compressedSummary))
 	return nil, EndSessionOutput{Summary: compressedSummary}, nil
 }
 
@@ -170,24 +159,24 @@ func (s *Server) handleCheckpoint(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, CheckpointOutput{}, wrapError("validate note", err)
 	}
 
-	s.log().Debug("creating checkpoint", "campaign_id", input.CampaignID, "session", input.Session, "note_length", len(input.Note), "has_data", len(input.Data) > 0)
+	s.logToolEntry("checkpoint", input.CampaignID, "session", input.Session, "has_data", len(input.Data) > 0)
 
 	var checkpointID string
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		checkpoint, err := dbCtx.Store.CreateCheckpoint(input.CampaignID, input.Session, input.Note, input.Data)
 		if err != nil {
-			s.log().Error("failed to create checkpoint", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
 			return wrapError("create checkpoint", err)
 		}
 
-		s.log().Info("checkpoint created", "campaign_id", input.CampaignID, "session", input.Session, "checkpoint_id", checkpoint.ID)
 		checkpointID = checkpoint.ID
 		return nil
 	})
 	if err != nil {
+		s.logToolError("checkpoint", input.CampaignID, err, "session", input.Session)
 		return nil, CheckpointOutput{}, err
 	}
 
+	s.logToolExit("checkpoint", input.CampaignID, "session", input.Session)
 	return nil, CheckpointOutput{CheckpointID: checkpointID}, nil
 }
 
@@ -197,13 +186,12 @@ func (s *Server) handleGetTurnHistory(ctx context.Context, req *mcp.CallToolRequ
 		limit = 50
 	}
 
-	s.log().Debug("getting turn history", "campaign_id", input.CampaignID, "session", input.Session, "limit", limit)
+	s.logToolEntry("get_turn_history", input.CampaignID, "session", input.Session, "limit", limit)
 
 	var turns []types.Checkpoint
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		checkpoints, err := dbCtx.Store.ListCheckpoints(input.CampaignID, input.Session, limit)
 		if err != nil {
-			s.log().Error("failed to list checkpoints", "campaign_id", input.CampaignID, "session", input.Session, "error", err)
 			return wrapError("list checkpoints", err)
 		}
 
@@ -214,17 +202,20 @@ func (s *Server) handleGetTurnHistory(ctx context.Context, req *mcp.CallToolRequ
 			}
 		}
 
-		s.log().Info("turn history retrieved", "campaign_id", input.CampaignID, "session", input.Session, "turns", len(turns))
 		return nil
 	})
 	if err != nil {
+		s.logToolError("get_turn_history", input.CampaignID, err, "session", input.Session)
 		return nil, GetTurnHistoryOutput{}, err
 	}
 
+	s.logToolExit("get_turn_history", input.CampaignID, "session", input.Session, "turns", len(turns))
 	return nil, GetTurnHistoryOutput{Turns: turns}, nil
 }
 
 func (s *Server) handleGetSessionBrief(ctx context.Context, req *mcp.CallToolRequest, input GetSessionBriefInput) (*mcp.CallToolResult, GetSessionBriefOutput, error) {
+	s.logToolEntry("get_session_brief", input.CampaignID)
+
 	var brief string
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		campaign, err := dbCtx.Store.GetCampaign(input.CampaignID)
@@ -256,13 +247,17 @@ func (s *Server) handleGetSessionBrief(ctx context.Context, req *mcp.CallToolReq
 		return nil
 	})
 	if err != nil {
+		s.logToolError("get_session_brief", input.CampaignID, err)
 		return nil, GetSessionBriefOutput{}, err
 	}
 
+	s.logToolExit("get_session_brief", input.CampaignID)
 	return nil, GetSessionBriefOutput{Brief: brief}, nil
 }
 
 func (s *Server) handleListSessions(ctx context.Context, req *mcp.CallToolRequest, input ListSessionsInput) (*mcp.CallToolResult, ListSessionsOutput, error) {
+	s.logToolEntry("list_sessions", input.CampaignID)
+
 	var sessions []types.SessionMeta
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -273,13 +268,17 @@ func (s *Server) handleListSessions(ctx context.Context, req *mcp.CallToolReques
 		return nil
 	})
 	if err != nil {
+		s.logToolError("list_sessions", input.CampaignID, err)
 		return nil, ListSessionsOutput{}, err
 	}
 
+	s.logToolExit("list_sessions", input.CampaignID, "count", len(sessions))
 	return nil, ListSessionsOutput{Sessions: sessions}, nil
 }
 
 func (s *Server) handleGetNPCRelationships(ctx context.Context, req *mcp.CallToolRequest, input GetNPCRelationshipsInput) (*mcp.CallToolResult, GetNPCRelationshipsOutput, error) {
+	s.logToolEntry("get_npc_relationships", input.CampaignID, "npc_name", input.NPCName)
+
 	var edges []types.RelationshipEdge
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
 		var err error
@@ -290,9 +289,11 @@ func (s *Server) handleGetNPCRelationships(ctx context.Context, req *mcp.CallToo
 		return nil
 	})
 	if err != nil {
+		s.logToolError("get_npc_relationships", input.CampaignID, err, "npc_name", input.NPCName)
 		return nil, GetNPCRelationshipsOutput{}, err
 	}
 
+	s.logToolExit("get_npc_relationships", input.CampaignID, "npc_name", input.NPCName, "count", len(edges))
 	return nil, GetNPCRelationshipsOutput{Relationships: edges}, nil
 }
 
@@ -305,6 +306,8 @@ func (s *Server) handleExportSessionRecap(ctx context.Context, req *mcp.CallTool
 	if input.ToSession != nil {
 		toSession = int(*input.ToSession)
 	}
+
+	s.logToolEntry("export_session_recap", input.CampaignID, "from_session", fromSession, "to_session", toSession)
 
 	var markdown string
 	err := s.withDB(ctx, input.CampaignID, func(dbCtx *DBContext) error {
@@ -345,8 +348,10 @@ func (s *Server) handleExportSessionRecap(ctx context.Context, req *mcp.CallTool
 		return nil
 	})
 	if err != nil {
+		s.logToolError("export_session_recap", input.CampaignID, err)
 		return nil, ExportSessionRecapOutput{}, err
 	}
 
+	s.logToolExit("export_session_recap", input.CampaignID, "markdown_length", len(markdown))
 	return nil, ExportSessionRecapOutput{Markdown: markdown}, nil
 }
