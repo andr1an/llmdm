@@ -1,0 +1,755 @@
+{
+  "dice_rolling": {
+    "roll": [
+      {
+        "description": "Basic attack roll",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "notation": "1d20+5",
+          "reason": "Attack goblin with longsword",
+          "character": "Thorin",
+          "session": 3
+        },
+        "output": {
+          "roll_result": {
+            "total": 18,
+            "rolls": [13],
+            "kept": [],
+            "modifier": 5,
+            "notation": "1d20+5",
+            "roll_id": "roll_001",
+            "timestamp": "2026-03-16T10:30:00Z"
+          }
+        }
+      },
+      {
+        "description": "Stealth check with advantage",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "notation": "1d20+3",
+          "reason": "Sneak past guards",
+          "character": "Bilbo",
+          "session": 3,
+          "advantage": true
+        },
+        "output": {
+          "roll_result": {
+            "total": 21,
+            "rolls": [18, 7],
+            "kept": [18],
+            "modifier": 3,
+            "notation": "1d20+3",
+            "roll_id": "roll_002",
+            "timestamp": "2026-03-16T10:31:00Z"
+          }
+        }
+      },
+      {
+        "description": "Ability check with disadvantage",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "notation": "1d20-1",
+          "reason": "Climb slippery wall",
+          "character": "Gandalf",
+          "session": 3,
+          "disadvantage": true
+        },
+        "output": {
+          "roll_result": {
+            "total": 8,
+            "rolls": [15, 9],
+            "kept": [9],
+            "modifier": -1,
+            "notation": "1d20-1",
+            "roll_id": "roll_003",
+            "timestamp": "2026-03-16T10:32:00Z"
+          }
+        }
+      },
+      {
+        "description": "Ability score generation (4d6 keep highest 3)",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "notation": "4d6kh3",
+          "reason": "Generate Strength score",
+          "session": 0
+        },
+        "output": {
+          "roll_result": {
+            "total": 14,
+            "rolls": [5, 4, 3, 2],
+            "kept": [5, 4, 3],
+            "modifier": 0,
+            "notation": "4d6kh3",
+            "roll_id": "roll_004",
+            "timestamp": "2026-03-16T10:33:00Z"
+          }
+        }
+      }
+    ],
+    "roll_contested": [
+      {
+        "description": "Attack vs AC",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "attacker": "Thorin",
+          "defender": "Goblin Chief",
+          "attacker_notation": "1d20+7",
+          "defender_notation": "1d20+2",
+          "contest_type": "Attack vs AC",
+          "session": 3
+        },
+        "output": {
+          "result": {
+            "winner": "Thorin",
+            "attacker_result": {
+              "total": 19,
+              "rolls": [12],
+              "modifier": 7,
+              "notation": "1d20+7",
+              "roll_id": "roll_att001",
+              "timestamp": "2026-03-16T10:35:00Z"
+            },
+            "defender_result": {
+              "total": 14,
+              "rolls": [12],
+              "modifier": 2,
+              "notation": "1d20+2",
+              "roll_id": "roll_def001",
+              "timestamp": "2026-03-16T10:35:00Z"
+            },
+            "margin": 5
+          }
+        }
+      },
+      {
+        "description": "Grapple contest (Athletics vs Athletics)",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "attacker": "Thorin",
+          "defender": "Orc Berserker",
+          "attacker_notation": "1d20+5",
+          "defender_notation": "1d20+3",
+          "contest_type": "Grapple (Athletics vs Athletics)",
+          "session": 3
+        },
+        "output": {
+          "result": {
+            "winner": "Orc Berserker",
+            "attacker_result": {
+              "total": 12,
+              "rolls": [7],
+              "modifier": 5,
+              "notation": "1d20+5",
+              "roll_id": "roll_att002",
+              "timestamp": "2026-03-16T10:36:00Z"
+            },
+            "defender_result": {
+              "total": 19,
+              "rolls": [16],
+              "modifier": 3,
+              "notation": "1d20+3",
+              "roll_id": "roll_def002",
+              "timestamp": "2026-03-16T10:36:00Z"
+            },
+            "margin": 7
+          }
+        }
+      }
+    ],
+    "roll_saving_throw": [
+      {
+        "description": "Dexterity save against fireball (success)",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "character": "Bilbo",
+          "stat": "DEX",
+          "modifier": 5.0,
+          "dc": 15.0,
+          "reason": "Dodge fireball",
+          "session": 3
+        },
+        "output": {
+          "result": {
+            "total": 18,
+            "rolled": 13,
+            "modifier": 5,
+            "dc": 15,
+            "success": true,
+            "roll_id": "roll_save001"
+          }
+        }
+      },
+      {
+        "description": "Wisdom save against charm (failure)",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "character": "Thorin",
+          "stat": "WIS",
+          "modifier": 0.0,
+          "dc": 14.0,
+          "reason": "Resist charm person",
+          "session": 3
+        },
+        "output": {
+          "result": {
+            "total": 11,
+            "rolled": 11,
+            "modifier": 0,
+            "dc": 14,
+            "success": false,
+            "roll_id": "roll_save002"
+          }
+        }
+      }
+    ],
+    "get_roll_history": [
+      {
+        "description": "Get last 10 rolls for a specific character",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "character": "Thorin",
+          "limit": 10
+        },
+        "output": {
+          "records": [
+            {
+              "id": "roll_001",
+              "campaign_id": "camp_abc123",
+              "session": 3,
+              "character": "Thorin",
+              "notation": "1d20+5",
+              "total": 18,
+              "rolls": [13],
+              "kept": [],
+              "modifier": 5,
+              "reason": "Attack goblin",
+              "advantage": false,
+              "disadvantage": false,
+              "created_at": "2026-03-16T10:30:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "campaign_memory": {
+    "create_campaign": [
+      {
+        "description": "Create new campaign",
+        "input": {
+          "name": "Lost Mines of Phandelver",
+          "description": "Classic D&D 5e starter adventure"
+        },
+        "output": {
+          "campaign_id": "camp_abc123",
+          "db_path": "/path/to/campaigns/camp_abc123.db",
+          "campaign": {
+            "id": "camp_abc123",
+            "name": "Lost Mines of Phandelver",
+            "description": "Classic D&D 5e starter adventure",
+            "created_at": "2026-03-16T10:00:00Z",
+            "current_session": 0
+          }
+        }
+      }
+    ],
+    "list_campaigns": [
+      {
+        "description": "List all campaigns",
+        "input": {},
+        "output": {
+          "campaigns": [
+            {
+              "id": "camp_abc123",
+              "name": "Lost Mines of Phandelver",
+              "description": "Classic D&D 5e starter adventure",
+              "created_at": "2026-03-15T10:00:00Z",
+              "current_session": 5
+            },
+            {
+              "id": "camp_def456",
+              "name": "Curse of Strahd",
+              "description": "Gothic horror in Barovia",
+              "created_at": "2026-03-01T14:30:00Z",
+              "current_session": 12
+            }
+          ]
+        }
+      }
+    ],
+    "save_character": [
+      {
+        "description": "Create level 1 Fighter PC",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "name": "Thorin Oakenshield",
+          "type": "pc",
+          "class": "Fighter",
+          "race": "Dwarf",
+          "level": 1,
+          "hp_current": 12.0,
+          "hp_max": 12.0,
+          "str": 16,
+          "dex": 12,
+          "con": 14,
+          "int_stat": 10,
+          "wis": 11,
+          "cha": 13,
+          "ac": 16,
+          "speed": "25 ft",
+          "proficiencies": {
+            "armor": ["Light Armor", "Medium Armor", "Heavy Armor", "Shields"],
+            "weapons": ["Simple Weapons", "Martial Weapons"],
+            "tools": [],
+            "saving_throws": ["STR", "CON"],
+            "skills": ["Athletics", "Intimidation"]
+          },
+          "languages": ["Common", "Dwarvish"],
+          "gold": 50,
+          "status": "active"
+        },
+        "output": {
+          "character": {
+            "id": "char_001",
+            "campaign_id": "camp_abc123",
+            "name": "Thorin Oakenshield",
+            "type": "pc",
+            "class": "Fighter",
+            "race": "Dwarf",
+            "level": 1,
+            "hp": {"current": 12, "max": 12},
+            "stats": {"STR": 16, "DEX": 12, "CON": 14, "INT": 10, "WIS": 11, "CHA": 13},
+            "ac": 16,
+            "speed": "25 ft",
+            "status": "active",
+            "updated_at": "2026-03-16T11:00:00Z"
+          }
+        }
+      },
+      {
+        "description": "Create Wizard NPC with spellcasting",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "name": "Gandalf",
+          "type": "npc",
+          "class": "Wizard",
+          "race": "Human",
+          "level": 5,
+          "hp_current": 28.0,
+          "hp_max": 28.0,
+          "str": 8,
+          "dex": 14,
+          "con": 12,
+          "int_stat": 18,
+          "wis": 14,
+          "cha": 12,
+          "ac": 12,
+          "spellcasting": {
+            "ability": "INT",
+            "spell_slots": {"1": 4, "2": 3, "3": 2},
+            "cantrips": ["Fire Bolt", "Light", "Mage Hand"],
+            "prepared_spells": ["Shield", "Magic Missile", "Fireball"]
+          },
+          "status": "active",
+          "notes": "Plot-critical NPC"
+        },
+        "output": {
+          "character": {
+            "id": "char_002",
+            "name": "Gandalf",
+            "type": "npc",
+            "spellcasting": {
+              "ability": "INT",
+              "spell_slots": {"1": 4, "2": 3, "3": 2},
+              "cantrips": ["Fire Bolt", "Light", "Mage Hand"],
+              "prepared_spells": ["Shield", "Magic Missile", "Fireball"]
+            },
+            "notes": "Plot-critical NPC"
+          }
+        }
+      }
+    ],
+    "update_character": [
+      {
+        "description": "Update HP and conditions after combat",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "name": "Thorin Oakenshield",
+          "hp_current": 8.0,
+          "conditions": ["Poisoned"]
+        },
+        "output": {
+          "character": {
+            "id": "char_001",
+            "name": "Thorin Oakenshield",
+            "hp": {"current": 8, "max": 12},
+            "conditions": ["Poisoned"]
+          }
+        }
+      },
+      {
+        "description": "Level up character",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "name": "Thorin Oakenshield",
+          "level": 2,
+          "hp_current": 20.0,
+          "hp_max": 20.0,
+          "experience_points": 300
+        },
+        "output": {
+          "character": {
+            "id": "char_001",
+            "name": "Thorin Oakenshield",
+            "level": 2,
+            "hp": {"current": 20, "max": 20},
+            "experience_points": 300
+          }
+        }
+      }
+    ],
+    "get_character": [
+      {
+        "description": "Retrieve full character sheet",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "name": "Thorin Oakenshield"
+        },
+        "output": {
+          "character": {
+            "id": "char_001",
+            "campaign_id": "camp_abc123",
+            "name": "Thorin Oakenshield",
+            "type": "pc",
+            "class": "Fighter",
+            "level": 1,
+            "hp": {"current": 12, "max": 12},
+            "stats": {"STR": 16, "DEX": 12, "CON": 14, "INT": 10, "WIS": 11, "CHA": 13}
+          }
+        }
+      }
+    ],
+    "list_characters": [
+      {
+        "description": "List active PCs",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "type": "pc",
+          "status": "active"
+        },
+        "output": {
+          "characters": [
+            {
+              "name": "Thorin Oakenshield",
+              "type": "pc",
+              "class": "Fighter",
+              "race": "Dwarf",
+              "level": 1,
+              "ac": 16,
+              "hp": {"current": 12, "max": 12},
+              "status": "active",
+              "conditions": []
+            }
+          ]
+        }
+      }
+    ],
+    "save_plot_event": [
+      {
+        "description": "Record major story event with hooks",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 3,
+          "summary": "The party ambushed a goblin patrol and captured one alive. Interrogation revealed the location of Cragmaw Hideout.",
+          "consequences": "Goblins on high alert. Party knows hideout location.",
+          "hooks": [
+            "Investigate Cragmaw Hideout",
+            "Rescue Sildar Hallwinter"
+          ]
+        },
+        "output": {
+          "event": {
+            "id": "event_001",
+            "campaign_id": "camp_abc123",
+            "session": 3,
+            "summary": "The party ambushed a goblin patrol...",
+            "consequences": "Goblins on high alert...",
+            "created_at": "2026-03-16T12:00:00Z"
+          },
+          "hooks": [
+            {
+              "id": "hook_001",
+              "campaign_id": "camp_abc123",
+              "hook": "Investigate Cragmaw Hideout",
+              "session_opened": 3,
+              "event_id": "event_001",
+              "resolved": false
+            },
+            {
+              "id": "hook_002",
+              "campaign_id": "camp_abc123",
+              "hook": "Rescue Sildar Hallwinter",
+              "session_opened": 3,
+              "event_id": "event_001",
+              "resolved": false
+            }
+          ]
+        }
+      }
+    ],
+    "list_open_hooks": [
+      {
+        "description": "Get all unresolved plot threads",
+        "input": {
+          "campaign_id": "camp_abc123"
+        },
+        "output": {
+          "hooks": [
+            {
+              "id": "hook_001",
+              "campaign_id": "camp_abc123",
+              "hook": "Investigate Cragmaw Hideout",
+              "session_opened": 3,
+              "resolved": false
+            },
+            {
+              "id": "hook_002",
+              "campaign_id": "camp_abc123",
+              "hook": "Rescue Sildar Hallwinter",
+              "session_opened": 3,
+              "resolved": false
+            }
+          ]
+        }
+      }
+    ],
+    "resolve_hook": [
+      {
+        "description": "Mark plot hook as resolved",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "hook_id": "hook_002",
+          "resolution": "Party rescued Sildar from Cragmaw Hideout"
+        },
+        "output": {
+          "hook": {
+            "id": "hook_002",
+            "campaign_id": "camp_abc123",
+            "hook": "Rescue Sildar Hallwinter",
+            "session_opened": 3,
+            "resolved": true,
+            "resolution": "Party rescued Sildar from Cragmaw Hideout"
+          }
+        }
+      }
+    ],
+    "set_world_flag": [
+      {
+        "description": "Set boolean flag",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "key": "gundren_rescued",
+          "value": "true"
+        },
+        "output": {
+          "success": true
+        }
+      },
+      {
+        "description": "Set faction reputation",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "key": "harpers_reputation",
+          "value": "friendly"
+        },
+        "output": {
+          "success": true
+        }
+      }
+    ],
+    "get_world_flags": [
+      {
+        "description": "Get all world state",
+        "input": {
+          "campaign_id": "camp_abc123"
+        },
+        "output": {
+          "flags": {
+            "gundren_rescued": "true",
+            "harpers_reputation": "friendly",
+            "days_until_ritual": "3"
+          }
+        }
+      }
+    ]
+  },
+  "session_management": {
+    "start_session": [
+      {
+        "description": "Start session 4",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 4,
+          "recent_sessions": 3
+        },
+        "output": {
+          "brief": {
+            "session_brief": "# Session 4\n\n## Last Session Summary\n...",
+            "active_characters": [
+              {
+                "name": "Thorin",
+                "type": "pc",
+                "class": "Fighter",
+                "level": 1,
+                "hp": {"current": 12, "max": 12}
+              }
+            ],
+            "open_hooks": [
+              {
+                "id": "hook_001",
+                "hook": "Investigate Cragmaw Hideout",
+                "session_opened": 3
+              }
+            ],
+            "world_flags": {
+              "gundren_rescued": "true"
+            }
+          }
+        }
+      }
+    ],
+    "end_session": [
+      {
+        "description": "End session with AI compression",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 3,
+          "raw_events": "Turn 1: Party entered goblin cave...\n\nTurn 2: Combat began...\n\n[Full session transcript]",
+          "dm_notes": "Great session!"
+        },
+        "output": {
+          "summary": "The party infiltrated the goblin cave and defeated the goblin leader Klarg. They discovered Sildar imprisoned and rescued him."
+        }
+      }
+    ],
+    "checkpoint": [
+      {
+        "description": "Simple narrative checkpoint",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 3,
+          "note": "Party enters Cragmaw Hideout"
+        },
+        "output": {
+          "checkpoint_id": "ckpt_001"
+        }
+      },
+      {
+        "description": "Combat turn checkpoint with data",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 3,
+          "note": "Thorin attacks Klarg",
+          "data": {
+            "turn_id": 5,
+            "sequence": 1,
+            "player_action": "Attack with longsword",
+            "narrative": "Thorin swings his sword at Klarg",
+            "tool_results": {
+              "attack_roll": {"total": 23},
+              "damage_roll": {"total": 12}
+            }
+          }
+        },
+        "output": {
+          "checkpoint_id": "ckpt_002"
+        }
+      }
+    ],
+    "get_turn_history": [
+      {
+        "description": "Get turn history for session",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "session": 3,
+          "limit": 10
+        },
+        "output": {
+          "turns": [
+            {
+              "id": "ckpt_001",
+              "campaign_id": "camp_abc123",
+              "session": 3,
+              "note": "Party enters Cragmaw Hideout",
+              "data": {},
+              "created_at": "2026-03-16T14:00:00Z"
+            }
+          ]
+        }
+      }
+    ],
+    "get_session_brief": [
+      {
+        "description": "Get brief without starting session",
+        "input": {
+          "campaign_id": "camp_abc123"
+        },
+        "output": {
+          "brief": "# Campaign: Lost Mines of Phandelver\n\n## Current Session: 3\n\n## Active Characters\n..."
+        }
+      }
+    ],
+    "list_sessions": [
+      {
+        "description": "List all sessions",
+        "input": {
+          "campaign_id": "camp_abc123"
+        },
+        "output": {
+          "sessions": [
+            {
+              "session": 3,
+              "date": "2026-03-15T14:00:00Z",
+              "summary_preview": "The party infiltrated a goblin cave...",
+              "hooks_opened": 2,
+              "hooks_resolved": 1
+            }
+          ]
+        }
+      }
+    ],
+    "get_npc_relationships": [
+      {
+        "description": "Get all NPC relationships",
+        "input": {
+          "campaign_id": "camp_abc123"
+        },
+        "output": {
+          "relationships": [
+            {
+              "source": "Thorin",
+              "source_type": "pc",
+              "target": "Sildar",
+              "target_type": "npc",
+              "relation": "ally"
+            }
+          ]
+        }
+      }
+    ],
+    "export_session_recap": [
+      {
+        "description": "Export full campaign recap",
+        "input": {
+          "campaign_id": "camp_abc123",
+          "from_session": 1.0,
+          "to_session": 3.0
+        },
+        "output": {
+          "markdown": "# Lost Mines of Phandelver - Campaign Recap\n\n## Session 1\n...\n\n## Session 2\n...\n\n## Session 3\n..."
+        }
+      }
+    ]
+  }
+}

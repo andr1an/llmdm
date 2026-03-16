@@ -179,6 +179,24 @@ Use this when configuring Claude to launch the MCP server as a local subprocess:
 - `get_npc_relationships` - Query NPC relationship graph
 - `export_session_recap` - Export markdown recap for session range
 
+## Documentation
+
+Comprehensive tool documentation is available in the [`docs/`](./docs/) directory:
+
+- **Tool Reference**: Detailed documentation for all 22 tools
+  - [Dice Rolling Tools](./docs/tools/dice-rolling.md) (4 tools)
+  - [Campaign Memory Tools](./docs/tools/campaign-memory.md) (11 tools)
+  - [Session Management Tools](./docs/tools/session-management.md) (7 tools)
+
+- **Guides**:
+  - [Quick Start Guide](./docs/guides/quick-start.md) - Get started in minutes
+  - [Character Creation Guide](./docs/guides/character-creation.md) - D&D 5e character sheets
+  - [Session Workflow Guide](./docs/guides/session-workflow.md) - Best practices for DMs
+
+- **Examples**: [Real-world tool usage examples](./docs/examples/tool-examples.json)
+
+**For Contributors**: See [CLAUDE.md](./CLAUDE.md) for documentation maintenance guidelines.
+
 ## Character Data Model
 
 Characters support full D&D 5e character sheets with the following fields:
