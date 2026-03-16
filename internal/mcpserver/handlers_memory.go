@@ -111,6 +111,19 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolReque
 	if err := validateMaxLength("notes", input.Notes, maxCharacterNotesLength); err != nil {
 		return nil, SaveCharacterOutput{}, err
 	}
+	if err := validateAlignment(input.Alignment); err != nil {
+		return nil, SaveCharacterOutput{}, err
+	}
+	if input.AC != 0 {
+		if err := validateAC(input.AC); err != nil {
+			return nil, SaveCharacterOutput{}, err
+		}
+	}
+	if input.Spellcasting != nil {
+		if err := validateSpellcastingAbility(input.Spellcasting.Ability); err != nil {
+			return nil, SaveCharacterOutput{}, err
+		}
+	}
 
 	level := input.Level
 	if level == 0 {
@@ -119,6 +132,41 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolReque
 	status := input.Status
 	if status == "" {
 		status = "active"
+	}
+
+	ac := input.AC
+	if ac == 0 {
+		ac = 10
+	}
+	speed := input.Speed
+	if speed == "" {
+		speed = "30 ft"
+	}
+
+	proficiencies := types.Proficiencies{
+		Armor:        []string{},
+		Weapons:      []string{},
+		Tools:        []string{},
+		SavingThrows: []string{},
+		Skills:       []string{},
+	}
+	if input.Proficiencies != nil {
+		proficiencies = *input.Proficiencies
+	}
+
+	skills := input.Skills
+	if skills == nil {
+		skills = []types.Skill{}
+	}
+
+	languages := input.Languages
+	if languages == nil {
+		languages = []string{}
+	}
+
+	features := input.Features
+	if features == nil {
+		features = []types.Feature{}
 	}
 
 	char := &types.Character{
@@ -140,14 +188,23 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolReque
 			WIS: input.WIS,
 			CHA: input.CHA,
 		},
-		Gold:          input.Gold,
-		Backstory:     input.Backstory,
-		Status:        status,
-		Notes:         input.Notes,
-		Inventory:     []string{},
-		Conditions:    []string{},
-		PlotFlags:     []string{},
-		Relationships: map[string]string{},
+		Alignment:        input.Alignment,
+		AC:               ac,
+		Speed:            speed,
+		ExperiencePoints: input.ExperiencePoints,
+		Proficiencies:    proficiencies,
+		Skills:           skills,
+		Languages:        languages,
+		Features:         features,
+		Spellcasting:     input.Spellcasting,
+		Gold:             input.Gold,
+		Backstory:        input.Backstory,
+		Status:           status,
+		Notes:            input.Notes,
+		Inventory:        []string{},
+		Conditions:       []string{},
+		PlotFlags:        []string{},
+		Relationships:    map[string]string{},
 	}
 
 	s.log().Debug("saving character", "campaign_id", input.CampaignID, "name", input.Name, "type", input.Type, "class", char.Class)
@@ -167,6 +224,21 @@ func (s *Server) handleSaveCharacter(ctx context.Context, req *mcp.CallToolReque
 func (s *Server) handleUpdateCharacter(ctx context.Context, req *mcp.CallToolRequest, input UpdateCharacterInput) (*mcp.CallToolResult, UpdateCharacterOutput, error) {
 	if input.Notes != "" {
 		if err := validateMaxLength("notes", input.Notes, maxCharacterNotesLength); err != nil {
+			return nil, UpdateCharacterOutput{}, err
+		}
+	}
+	if input.Alignment != "" {
+		if err := validateAlignment(input.Alignment); err != nil {
+			return nil, UpdateCharacterOutput{}, err
+		}
+	}
+	if input.AC != nil {
+		if err := validateAC(*input.AC); err != nil {
+			return nil, UpdateCharacterOutput{}, err
+		}
+	}
+	if input.Spellcasting != nil {
+		if err := validateSpellcastingAbility(input.Spellcasting.Ability); err != nil {
 			return nil, UpdateCharacterOutput{}, err
 		}
 	}
@@ -208,6 +280,33 @@ func (s *Server) handleUpdateCharacter(ctx context.Context, req *mcp.CallToolReq
 			}
 		}
 		update.Relationships = relationships
+	}
+	if input.Alignment != "" {
+		update.Alignment = &input.Alignment
+	}
+	if input.AC != nil {
+		update.AC = input.AC
+	}
+	if input.Speed != "" {
+		update.Speed = &input.Speed
+	}
+	if input.ExperiencePoints != nil {
+		update.ExperiencePoints = input.ExperiencePoints
+	}
+	if input.Proficiencies != nil {
+		update.Proficiencies = input.Proficiencies
+	}
+	if input.Skills != nil {
+		update.Skills = input.Skills
+	}
+	if input.Languages != nil {
+		update.Languages = input.Languages
+	}
+	if input.Features != nil {
+		update.Features = input.Features
+	}
+	if input.Spellcasting != nil {
+		update.Spellcasting = input.Spellcasting
 	}
 
 	s.log().Debug("updating character", "campaign_id", input.CampaignID, "name", input.Name)

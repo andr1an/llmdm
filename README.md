@@ -149,35 +149,74 @@ Use this when configuring Claude to launch the MCP server as a local subprocess:
 
 ### Dice
 
-- `roll`
-- `roll_contested`
-- `roll_saving_throw`
-- `get_roll_history`
+- `roll` - Roll dice using standard notation (e.g., "1d20+5", "4d6kh3")
+- `roll_contested` - Roll contested checks between attacker and defender
+- `roll_saving_throw` - Roll a saving throw against a DC
+- `get_roll_history` - Retrieve roll history with optional filters
 
 ### Campaign Memory
 
-- `create_campaign`
-- `list_campaigns`
-- `save_character`
-- `update_character`
-- `get_character`
-- `list_characters`
-- `save_plot_event`
-- `list_open_hooks`
-- `resolve_hook`
-- `set_world_flag`
-- `get_world_flags`
+- `create_campaign` - Create a new campaign database
+- `list_campaigns` - List all available campaigns
+- `save_character` - Save or replace a character (PC or NPC)
+- `update_character` - Partially update character fields
+- `get_character` - Retrieve full character sheet
+- `list_characters` - List character summaries with optional filters
+- `save_plot_event` - Record a narrative event with plot hooks
+- `list_open_hooks` - Get all unresolved plot hooks
+- `resolve_hook` - Mark a plot hook as resolved
+- `set_world_flag` - Set a campaign world flag
+- `get_world_flags` - Get all world flags
 
 ### Session Management
 
-- `start_session`
-- `end_session`
-- `checkpoint`
-- `get_turn_history`
-- `get_session_brief`
-- `list_sessions`
-- `get_npc_relationships`
-- `export_session_recap`
+- `start_session` - Generate a session brief with context
+- `end_session` - End session and compress event log
+- `checkpoint` - Save mid-session checkpoint with turn data
+- `get_turn_history` - Retrieve checkpoints from a session
+- `get_session_brief` - Get brief for current session
+- `list_sessions` - List all session metadata
+- `get_npc_relationships` - Query NPC relationship graph
+- `export_session_recap` - Export markdown recap for session range
+
+## Character Data Model
+
+Characters support full D&D 5e character sheets with the following fields:
+
+### Core Stats
+- Name, Type (PC/NPC), Class, Race, Level
+- HP (Current/Max)
+- Ability Scores (STR, DEX, CON, INT, WIS, CHA)
+- Alignment (e.g., "Lawful Good", "Chaotic Neutral")
+- Armor Class (AC), Speed
+- Experience Points
+- Gold
+
+### D&D 5e Features
+- **Proficiencies**: Armor, Weapons, Tools, Saving Throws, Skills
+- **Skills**: Individual skills with proficiency status and modifiers
+- **Languages**: Array of known languages
+- **Features**: Racial traits, class features, feats (with descriptions and sources)
+- **Spellcasting** (optional, for spellcasters):
+  - Spellcasting ability (INT/WIS/CHA)
+  - Spell slots by level
+  - Known cantrips
+  - Prepared spells
+
+### Narrative Fields
+- Backstory (up to 8,000 characters)
+- Inventory (array of items)
+- Conditions (active status effects)
+- Plot Flags (narrative state markers)
+- Relationships (NPC connections)
+- Notes (DM-only, up to 4,000 characters)
+- Status (active/dead/missing/retired)
+
+### Defaults
+- AC defaults to 10 if not specified
+- Speed defaults to "30 ft" if not specified
+- Experience Points default to 0
+- All array fields initialize to empty arrays (never null)
 
 ## Persistence Model
 
@@ -187,16 +226,18 @@ Each campaign is persisted in its own SQLite file:
 
 Core tables (auto-migrated on access):
 
-- `campaigns`
-- `characters`
-- `plot_events`
-- `plot_hooks`
-- `world_flags`
-- `roll_log`
-- `sessions`
-- `checkpoints`
+- `campaigns` - Campaign metadata
+- `characters` - Full D&D 5e character sheets with ability scores, proficiencies, skills, spellcasting, etc.
+- `plot_events` - Narrative events by session
+- `plot_hooks` - Unresolved story threads
+- `world_flags` - Campaign-wide state flags
+- `roll_log` - Complete dice roll history
+- `sessions` - Session summaries and metadata
+- `checkpoints` - Mid-session turn snapshots
 
 Schema source: `internal/db/schema.sql`.
+
+Character data is stored with JSON columns for complex fields (proficiencies, skills, features, spellcasting) and supports both spellcasters and non-spellcasters.
 
 ## End-Session Compression Behavior
 

@@ -92,24 +92,33 @@ type ListCampaignsOutput struct {
 
 // SaveCharacterInput contains parameters for the save_character tool.
 type SaveCharacterInput struct {
-	CampaignID string  `json:"campaign_id" jsonschema:"Campaign ID"`
-	Name       string  `json:"name" jsonschema:"Character name"`
-	Type       string  `json:"type" jsonschema:"Character type,enum=pc|npc"`
-	Class      string  `json:"class,omitempty" jsonschema:"Character class (e.g. 'Paladin')"`
-	Race       string  `json:"race,omitempty" jsonschema:"Character race (e.g. 'Human')"`
-	Level      int     `json:"level,omitempty" jsonschema:"Character level (default: 1)"`
-	HPCurrent  float64 `json:"hp_current" jsonschema:"Current hit points"`
-	HPMax      float64 `json:"hp_max" jsonschema:"Maximum hit points"`
-	STR        int     `json:"str,omitempty" jsonschema:"Strength score"`
-	DEX        int     `json:"dex,omitempty" jsonschema:"Dexterity score"`
-	CON        int     `json:"con,omitempty" jsonschema:"Constitution score"`
-	INTStat    int     `json:"int_stat,omitempty" jsonschema:"Intelligence score"`
-	WIS        int     `json:"wis,omitempty" jsonschema:"Wisdom score"`
-	CHA        int     `json:"cha,omitempty" jsonschema:"Charisma score"`
-	Gold       int     `json:"gold,omitempty" jsonschema:"Gold pieces (default: 0)"`
-	Backstory  string  `json:"backstory,omitempty" jsonschema:"Character backstory"`
-	Status     string  `json:"status,omitempty" jsonschema:"Character status,enum=active|dead|missing|retired"`
-	Notes      string  `json:"notes,omitempty" jsonschema:"DM private notes (for NPCs)"`
+	CampaignID       string               `json:"campaign_id" jsonschema:"Campaign ID"`
+	Name             string               `json:"name" jsonschema:"Character name"`
+	Type             string               `json:"type" jsonschema:"Character type,enum=pc|npc"`
+	Class            string               `json:"class,omitempty" jsonschema:"Character class (e.g. 'Paladin')"`
+	Race             string               `json:"race,omitempty" jsonschema:"Character race (e.g. 'Human')"`
+	Level            int                  `json:"level,omitempty" jsonschema:"Character level (default: 1)"`
+	HPCurrent        float64              `json:"hp_current" jsonschema:"Current hit points"`
+	HPMax            float64              `json:"hp_max" jsonschema:"Maximum hit points"`
+	STR              int                  `json:"str,omitempty" jsonschema:"Strength score"`
+	DEX              int                  `json:"dex,omitempty" jsonschema:"Dexterity score"`
+	CON              int                  `json:"con,omitempty" jsonschema:"Constitution score"`
+	INTStat          int                  `json:"int_stat,omitempty" jsonschema:"Intelligence score"`
+	WIS              int                  `json:"wis,omitempty" jsonschema:"Wisdom score"`
+	CHA              int                  `json:"cha,omitempty" jsonschema:"Charisma score"`
+	Alignment        string               `json:"alignment,omitempty" jsonschema:"D&D 5e alignment (e.g. 'Lawful Good' 'Chaotic Neutral')"`
+	AC               int                  `json:"ac,omitempty" jsonschema:"Armor class (default: 10)"`
+	Speed            string               `json:"speed,omitempty" jsonschema:"Movement speed (default: '30 ft')"`
+	ExperiencePoints int                  `json:"experience_points,omitempty" jsonschema:"Experience points (default: 0)"`
+	Proficiencies    *types.Proficiencies `json:"proficiencies,omitempty"`
+	Skills           []types.Skill        `json:"skills,omitempty"`
+	Languages        []string             `json:"languages,omitempty"`
+	Features         []types.Feature      `json:"features,omitempty"`
+	Spellcasting     *types.Spellcasting  `json:"spellcasting,omitempty"`
+	Gold             int                  `json:"gold,omitempty" jsonschema:"Gold pieces (default: 0)"`
+	Backstory        string               `json:"backstory,omitempty" jsonschema:"Character backstory"`
+	Status           string               `json:"status,omitempty" jsonschema:"Character status,enum=active|dead|missing|retired"`
+	Notes            string               `json:"notes,omitempty" jsonschema:"DM private notes (for NPCs)"`
 }
 
 // SaveCharacterOutput contains the saved character.
@@ -119,17 +128,26 @@ type SaveCharacterOutput struct {
 
 // UpdateCharacterInput contains parameters for the update_character tool.
 type UpdateCharacterInput struct {
-	CampaignID    string                 `json:"campaign_id" jsonschema:"Campaign ID"`
-	Name          string                 `json:"name" jsonschema:"Character name"`
-	HPCurrent     *float64               `json:"hp_current,omitempty" jsonschema:"New current hit points"`
-	Level         *int                   `json:"level,omitempty" jsonschema:"New level"`
-	Gold          *int                   `json:"gold,omitempty" jsonschema:"New gold amount"`
-	Status        string                 `json:"status,omitempty" jsonschema:"New status,enum=active|dead|missing|retired"`
-	Notes         string                 `json:"notes,omitempty" jsonschema:"New DM notes"`
-	Inventory     []string               `json:"inventory,omitempty" jsonschema:"Replace inventory with array of item strings"`
-	Conditions    []string               `json:"conditions,omitempty" jsonschema:"Replace conditions with array of condition strings"`
-	PlotFlags     []string               `json:"plot_flags,omitempty" jsonschema:"Replace plot flags with array of flag strings"`
-	Relationships map[string]interface{} `json:"relationships,omitempty" jsonschema:"Replace relationships map (name -> relation)"`
+	CampaignID       string                 `json:"campaign_id" jsonschema:"Campaign ID"`
+	Name             string                 `json:"name" jsonschema:"Character name"`
+	HPCurrent        *float64               `json:"hp_current,omitempty" jsonschema:"New current hit points"`
+	Level            *int                   `json:"level,omitempty" jsonschema:"New level"`
+	Gold             *int                   `json:"gold,omitempty" jsonschema:"New gold amount"`
+	Status           string                 `json:"status,omitempty" jsonschema:"New status,enum=active|dead|missing|retired"`
+	Notes            string                 `json:"notes,omitempty" jsonschema:"New DM notes"`
+	Inventory        []string               `json:"inventory,omitempty" jsonschema:"Replace inventory with array of item strings"`
+	Conditions       []string               `json:"conditions,omitempty" jsonschema:"Replace conditions with array of condition strings"`
+	PlotFlags        []string               `json:"plot_flags,omitempty" jsonschema:"Replace plot flags with array of flag strings"`
+	Relationships    map[string]interface{} `json:"relationships,omitempty" jsonschema:"Replace relationships map (name -> relation)"`
+	Alignment        string                 `json:"alignment,omitempty" jsonschema:"D&D 5e alignment (e.g. 'Lawful Good' 'Chaotic Neutral')"`
+	AC               *int                   `json:"ac,omitempty"`
+	Speed            string                 `json:"speed,omitempty"`
+	ExperiencePoints *int                   `json:"experience_points,omitempty"`
+	Proficiencies    *types.Proficiencies   `json:"proficiencies,omitempty"`
+	Skills           []types.Skill          `json:"skills,omitempty"`
+	Languages        []string               `json:"languages,omitempty"`
+	Features         []types.Feature        `json:"features,omitempty"`
+	Spellcasting     *types.Spellcasting    `json:"spellcasting,omitempty"`
 }
 
 // UpdateCharacterOutput contains the updated character.

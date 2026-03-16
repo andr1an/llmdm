@@ -78,6 +78,17 @@ func (db *DB) Migrate() error {
 	// Add data column to checkpoints table (ignore error if column exists)
 	_, _ = db.Exec(`ALTER TABLE checkpoints ADD COLUMN data TEXT`)
 
+	// Add new D&D 5e character fields (ignore errors if columns exist)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN alignment TEXT`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN ac INTEGER DEFAULT 10`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN speed TEXT DEFAULT '30 ft'`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN experience_points INTEGER DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN proficiencies TEXT`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN skills TEXT`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN languages TEXT`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN features TEXT`)
+	_, _ = db.Exec(`ALTER TABLE characters ADD COLUMN spellcasting TEXT`)
+
 	slog.Debug("migrations completed successfully", "db_path", db.path, "duration_ms", time.Since(start).Milliseconds())
 	return nil
 }

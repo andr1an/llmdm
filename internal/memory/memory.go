@@ -85,12 +85,21 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 	conditionsJSON, _ := json.Marshal(char.Conditions)
 	relationshipsJSON, _ := json.Marshal(char.Relationships)
 	plotFlagsJSON, _ := json.Marshal(char.PlotFlags)
+	proficienciesJSON, _ := json.Marshal(char.Proficiencies)
+	skillsJSON, _ := json.Marshal(char.Skills)
+	languagesJSON, _ := json.Marshal(char.Languages)
+	featuresJSON, _ := json.Marshal(char.Features)
+	var spellcastingJSON []byte
+	if char.Spellcasting != nil {
+		spellcastingJSON, _ = json.Marshal(char.Spellcasting)
+	}
 
 	_, err := s.db.Exec(`
 		INSERT INTO characters (id, campaign_id, name, type, class, race, level, hp_current, hp_max,
-			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, gold, backstory, inventory,
-			conditions, relationships, plot_flags, notes, status, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, alignment, ac, speed,
+			experience_points, proficiencies, skills, languages, features, spellcasting,
+			gold, backstory, inventory, conditions, relationships, plot_flags, notes, status, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(campaign_id, name) DO UPDATE SET
 			id = excluded.id,
 			type = excluded.type,
@@ -105,6 +114,15 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 			stat_int = excluded.stat_int,
 			stat_wis = excluded.stat_wis,
 			stat_cha = excluded.stat_cha,
+			alignment = excluded.alignment,
+			ac = excluded.ac,
+			speed = excluded.speed,
+			experience_points = excluded.experience_points,
+			proficiencies = excluded.proficiencies,
+			skills = excluded.skills,
+			languages = excluded.languages,
+			features = excluded.features,
+			spellcasting = excluded.spellcasting,
 			gold = excluded.gold,
 			backstory = excluded.backstory,
 			inventory = excluded.inventory,
@@ -116,7 +134,9 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 			updated_at = excluded.updated_at
 	`, char.ID, char.CampaignID, char.Name, char.Type, char.Class, char.Race, char.Level,
 		char.HP.Current, char.HP.Max, char.Stats.STR, char.Stats.DEX, char.Stats.CON,
-		char.Stats.INT, char.Stats.WIS, char.Stats.CHA, char.Gold, char.Backstory, string(inventoryJSON),
+		char.Stats.INT, char.Stats.WIS, char.Stats.CHA, char.Alignment, char.AC, char.Speed,
+		char.ExperiencePoints, string(proficienciesJSON), string(skillsJSON), string(languagesJSON),
+		string(featuresJSON), string(spellcastingJSON), char.Gold, char.Backstory, string(inventoryJSON),
 		string(conditionsJSON), string(relationshipsJSON), string(plotFlagsJSON),
 		char.Notes, char.Status, char.UpdatedAt)
 
@@ -128,15 +148,24 @@ func (s *Store) SaveCharacter(char *types.Character) error {
 
 // CharacterUpdate represents fields to patch on a character.
 type CharacterUpdate struct {
-	HPCurrent     *int
-	Level         *int
-	Gold          *int
-	Conditions    []string
-	Inventory     []string
-	PlotFlags     []string
-	Relationships map[string]string
-	Status        *string
-	Notes         *string
+	HPCurrent        *int
+	Level            *int
+	Gold             *int
+	Conditions       []string
+	Inventory        []string
+	PlotFlags        []string
+	Relationships    map[string]string
+	Status           *string
+	Notes            *string
+	Alignment        *string
+	AC               *int
+	Speed            *string
+	ExperiencePoints *int
+	Proficiencies    *types.Proficiencies
+	Skills           []types.Skill
+	Languages        []string
+	Features         []types.Feature
+	Spellcasting     *types.Spellcasting
 }
 
 // UpdateCharacter patches specific fields on a character.
@@ -197,6 +226,56 @@ func (s *Store) UpdateCharacter(campaignID, name string, update CharacterUpdate)
 		args = append(args, *update.Notes)
 		updatedFields = append(updatedFields, "notes")
 	}
+	if update.Alignment != nil {
+		updates = append(updates, "alignment = ?")
+		args = append(args, *update.Alignment)
+		updatedFields = append(updatedFields, "alignment")
+	}
+	if update.AC != nil {
+		updates = append(updates, "ac = ?")
+		args = append(args, *update.AC)
+		updatedFields = append(updatedFields, "ac")
+	}
+	if update.Speed != nil {
+		updates = append(updates, "speed = ?")
+		args = append(args, *update.Speed)
+		updatedFields = append(updatedFields, "speed")
+	}
+	if update.ExperiencePoints != nil {
+		updates = append(updates, "experience_points = ?")
+		args = append(args, *update.ExperiencePoints)
+		updatedFields = append(updatedFields, "experience_points")
+	}
+	if update.Proficiencies != nil {
+		proficienciesJSON, _ := json.Marshal(update.Proficiencies)
+		updates = append(updates, "proficiencies = ?")
+		args = append(args, string(proficienciesJSON))
+		updatedFields = append(updatedFields, "proficiencies")
+	}
+	if update.Skills != nil {
+		skillsJSON, _ := json.Marshal(update.Skills)
+		updates = append(updates, "skills = ?")
+		args = append(args, string(skillsJSON))
+		updatedFields = append(updatedFields, "skills")
+	}
+	if update.Languages != nil {
+		languagesJSON, _ := json.Marshal(update.Languages)
+		updates = append(updates, "languages = ?")
+		args = append(args, string(languagesJSON))
+		updatedFields = append(updatedFields, "languages")
+	}
+	if update.Features != nil {
+		featuresJSON, _ := json.Marshal(update.Features)
+		updates = append(updates, "features = ?")
+		args = append(args, string(featuresJSON))
+		updatedFields = append(updatedFields, "features")
+	}
+	if update.Spellcasting != nil {
+		spellcastingJSON, _ := json.Marshal(update.Spellcasting)
+		updates = append(updates, "spellcasting = ?")
+		args = append(args, string(spellcastingJSON))
+		updatedFields = append(updatedFields, "spellcasting")
+	}
 
 	if len(updatedFields) == 0 {
 		return nil, nil
@@ -223,17 +302,23 @@ func (s *Store) GetCharacter(campaignID, name string) (*types.Character, error) 
 	var c types.Character
 	var classNull, raceNull, backstoryNull, notesNull sql.NullString
 	var inventoryJSON, conditionsJSON, relationshipsJSON, plotFlagsJSON sql.NullString
+	var alignmentNull, speedNull sql.NullString
+	var acNull, experiencePointsNull sql.NullInt64
+	var proficienciesJSON, skillsJSON, languagesJSON, featuresJSON, spellcastingJSON sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, campaign_id, name, type, class, race, level, hp_current, hp_max,
-			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha, gold, backstory,
-			inventory, conditions, relationships, plot_flags, notes, status, updated_at
+			stat_str, stat_dex, stat_con, stat_int, stat_wis, stat_cha,
+			alignment, ac, speed, experience_points, proficiencies, skills, languages, features, spellcasting,
+			gold, backstory, inventory, conditions, relationships, plot_flags, notes, status, updated_at
 		FROM characters WHERE campaign_id = ? AND name = ?
 	`, campaignID, name).Scan(
 		&c.ID, &c.CampaignID, &c.Name, &c.Type, &classNull, &raceNull, &c.Level,
 		&c.HP.Current, &c.HP.Max, &c.Stats.STR, &c.Stats.DEX, &c.Stats.CON,
-		&c.Stats.INT, &c.Stats.WIS, &c.Stats.CHA, &c.Gold, &backstoryNull,
-		&inventoryJSON, &conditionsJSON, &relationshipsJSON, &plotFlagsJSON,
+		&c.Stats.INT, &c.Stats.WIS, &c.Stats.CHA,
+		&alignmentNull, &acNull, &speedNull, &experiencePointsNull,
+		&proficienciesJSON, &skillsJSON, &languagesJSON, &featuresJSON, &spellcastingJSON,
+		&c.Gold, &backstoryNull, &inventoryJSON, &conditionsJSON, &relationshipsJSON, &plotFlagsJSON,
 		&notesNull, &c.Status, &c.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -267,6 +352,39 @@ func (s *Store) GetCharacter(campaignID, name string) (*types.Character, error) 
 	if plotFlagsJSON.Valid {
 		json.Unmarshal([]byte(plotFlagsJSON.String), &c.PlotFlags)
 	}
+	if alignmentNull.Valid {
+		c.Alignment = alignmentNull.String
+	}
+	if acNull.Valid {
+		c.AC = int(acNull.Int64)
+	} else {
+		c.AC = 10
+	}
+	if speedNull.Valid {
+		c.Speed = speedNull.String
+	} else {
+		c.Speed = "30 ft"
+	}
+	if experiencePointsNull.Valid {
+		c.ExperiencePoints = int(experiencePointsNull.Int64)
+	}
+	if proficienciesJSON.Valid && proficienciesJSON.String != "" {
+		json.Unmarshal([]byte(proficienciesJSON.String), &c.Proficiencies)
+	}
+	if skillsJSON.Valid && skillsJSON.String != "" {
+		json.Unmarshal([]byte(skillsJSON.String), &c.Skills)
+	}
+	if languagesJSON.Valid && languagesJSON.String != "" {
+		json.Unmarshal([]byte(languagesJSON.String), &c.Languages)
+	}
+	if featuresJSON.Valid && featuresJSON.String != "" {
+		json.Unmarshal([]byte(featuresJSON.String), &c.Features)
+	}
+	if spellcastingJSON.Valid && spellcastingJSON.String != "" {
+		var spellcasting types.Spellcasting
+		json.Unmarshal([]byte(spellcastingJSON.String), &spellcasting)
+		c.Spellcasting = &spellcasting
+	}
 
 	// Ensure non-nil slices and maps
 	if c.Inventory == nil {
@@ -281,13 +399,22 @@ func (s *Store) GetCharacter(campaignID, name string) (*types.Character, error) 
 	if c.Relationships == nil {
 		c.Relationships = map[string]string{}
 	}
+	if c.Skills == nil {
+		c.Skills = []types.Skill{}
+	}
+	if c.Languages == nil {
+		c.Languages = []string{}
+	}
+	if c.Features == nil {
+		c.Features = []types.Feature{}
+	}
 
 	return &c, nil
 }
 
 // ListCharacters returns characters filtered by type and status.
 func (s *Store) ListCharacters(campaignID, charType, status string) ([]types.CharacterSummary, error) {
-	query := `SELECT name, type, class, level, hp_current, hp_max, status, conditions
+	query := `SELECT name, type, class, race, level, ac, hp_current, hp_max, status, conditions
 		FROM characters WHERE campaign_id = ?`
 	args := []interface{}{campaignID}
 
@@ -310,13 +437,21 @@ func (s *Store) ListCharacters(campaignID, charType, status string) ([]types.Cha
 	var result []types.CharacterSummary
 	for rows.Next() {
 		var cs types.CharacterSummary
-		var classNull, conditionsJSON sql.NullString
-		err := rows.Scan(&cs.Name, &cs.Type, &classNull, &cs.Level, &cs.HP.Current, &cs.HP.Max, &cs.Status, &conditionsJSON)
+		var classNull, raceNull, conditionsJSON sql.NullString
+		var acNull sql.NullInt64
+		err := rows.Scan(&cs.Name, &cs.Type, &classNull, &raceNull, &cs.Level,
+			&acNull, &cs.HP.Current, &cs.HP.Max, &cs.Status, &conditionsJSON)
 		if err != nil {
 			return nil, fmt.Errorf("scan character: %w", err)
 		}
 		if classNull.Valid {
 			cs.Class = classNull.String
+		}
+		if raceNull.Valid {
+			cs.Race = raceNull.String
+		}
+		if acNull.Valid {
+			cs.AC = int(acNull.Int64)
 		}
 		if conditionsJSON.Valid {
 			json.Unmarshal([]byte(conditionsJSON.String), &cs.Conditions)

@@ -56,3 +56,47 @@ func validateMaxLength(fieldName, value string, maxRunes int) error {
 	}
 	return nil
 }
+
+var validAlignments = map[string]bool{
+	"Lawful Good":     true,
+	"Neutral Good":    true,
+	"Chaotic Good":    true,
+	"Lawful Neutral":  true,
+	"True Neutral":    true,
+	"Chaotic Neutral": true,
+	"Lawful Evil":     true,
+	"Neutral Evil":    true,
+	"Chaotic Evil":    true,
+}
+
+var validAbilityScores = map[string]bool{
+	"STR": true, "DEX": true, "CON": true,
+	"INT": true, "WIS": true, "CHA": true,
+}
+
+func validateAlignment(alignment string) error {
+	if alignment == "" {
+		return nil
+	}
+	if !validAlignments[alignment] {
+		return fmt.Errorf("invalid alignment: %s", alignment)
+	}
+	return nil
+}
+
+func validateAC(ac int) error {
+	if ac < 0 || ac > 30 {
+		return fmt.Errorf("armor class must be between 0 and 30, got: %d", ac)
+	}
+	return nil
+}
+
+func validateSpellcastingAbility(ability string) error {
+	if ability == "" {
+		return nil
+	}
+	if !validAbilityScores[ability] {
+		return fmt.Errorf("invalid spellcasting ability: %s (must be STR, DEX, CON, INT, WIS, or CHA)", ability)
+	}
+	return nil
+}

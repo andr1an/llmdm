@@ -12,6 +12,15 @@ type Character struct {
 	Level         int               `json:"level"`
 	HP            HP                `json:"hp"`
 	Stats         Stats             `json:"stats"`
+	Alignment     string            `json:"alignment,omitempty"`
+	AC            int               `json:"ac,omitempty"`
+	Speed         string            `json:"speed,omitempty"`
+	ExperiencePoints int            `json:"experience_points"`
+	Proficiencies Proficiencies     `json:"proficiencies"`
+	Skills        []Skill           `json:"skills"`
+	Languages     []string          `json:"languages"`
+	Features      []Feature         `json:"features"`
+	Spellcasting  *Spellcasting     `json:"spellcasting,omitempty"` // Pointer (nullable)
 	Gold          int               `json:"gold"`
 	Backstory     string            `json:"backstory,omitempty"`
 	Inventory     []string          `json:"inventory"`
@@ -37,6 +46,37 @@ type Stats struct {
 	INT int `json:"INT"`
 	WIS int `json:"WIS"`
 	CHA int `json:"CHA"`
+}
+
+// Proficiencies represents skill and saving throw proficiencies.
+type Proficiencies struct {
+	Armor        []string `json:"armor"`         // e.g., ["Light Armor", "Medium Armor"]
+	Weapons      []string `json:"weapons"`       // e.g., ["Simple Weapons", "Martial Weapons"]
+	Tools        []string `json:"tools"`         // e.g., ["Thieves' Tools"]
+	SavingThrows []string `json:"saving_throws"` // e.g., ["STR", "CON"]
+	Skills       []string `json:"skills"`        // e.g., ["Perception", "Stealth"]
+}
+
+// Skill represents an individual skill with its modifier.
+type Skill struct {
+	Name       string `json:"name"`       // e.g., "Perception"
+	Proficient bool   `json:"proficient"` // Is character proficient?
+	Modifier   int    `json:"modifier"`   // Total modifier
+}
+
+// Spellcasting represents spellcasting abilities.
+type Spellcasting struct {
+	Ability        string         `json:"ability,omitempty"`         // e.g., "INT", "WIS", "CHA"
+	SpellSlots     map[string]int `json:"spell_slots,omitempty"`     // e.g., {"1": 4, "2": 3}
+	Cantrips       []string       `json:"cantrips,omitempty"`        // Cantrip names
+	PreparedSpells []string       `json:"prepared_spells,omitempty"` // Prepared spell names
+}
+
+// Feature represents a trait or class feature.
+type Feature struct {
+	Name        string `json:"name"`                  // e.g., "Rage", "Darkvision"
+	Description string `json:"description,omitempty"` // Text description
+	Source      string `json:"source,omitempty"`      // e.g., "race", "class", "feat"
 }
 
 // PlotEvent represents a narrative event in the campaign.
@@ -79,7 +119,9 @@ type CharacterSummary struct {
 	Name       string   `json:"name"`
 	Type       string   `json:"type"`
 	Class      string   `json:"class"`
+	Race       string   `json:"race"`
 	Level      int      `json:"level"`
+	AC         int      `json:"ac"`
 	HP         HP       `json:"hp"`
 	Status     string   `json:"status"`
 	Conditions []string `json:"conditions"`
