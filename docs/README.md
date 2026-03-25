@@ -78,6 +78,24 @@ Best practices for running sessions with checkpoints and compression.
 
 [View Session Workflow Guide →](./guides/session-workflow.md)
 
+### Deployment & Configuration
+
+Server deployment, transport modes, and MCP client setup.
+
+[View Deployment Guide →](./guides/deployment.md)
+
+### Architecture & Development
+
+Technical architecture, database model, and development practices.
+
+[View Architecture Guide →](./guides/architecture.md)
+
+### Troubleshooting
+
+Common issues and solutions for configuration, sessions, and HTTP transport.
+
+[View Troubleshooting Guide →](./guides/troubleshooting.md)
+
 ## Examples
 
 Real-world usage examples for all 22 tools with sample inputs and outputs.
